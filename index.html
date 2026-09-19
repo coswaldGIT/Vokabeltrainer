@@ -219,7 +219,7 @@ function speechMatch(alt, w) {
   const la = loose(a);
   return w.alts.some(v => { const lv = loose(v); return la === lv || noArt(la, w.lang) === noArt(lv, w.lang); });
 }
-function hintPattern(f) { return [...f].map((c, i) => i === 0 ? c : (/[\s'’\-]/.test(c) ? (c === ' ' ? ' ' : c) : '_')).join(' '); }
+function hintPattern(f) { return [...f].map((c, i) => i === 0 ? c : (/[\s'’\-.,!?…]/.test(c) ? (c === ' ' ? ' ' : c) : '_')).join(' '); }
 
 /* ═════════════ Sprachausgabe & -erkennung ═════════════ */
 const HAS_TTS = 'speechSynthesis' in window;
