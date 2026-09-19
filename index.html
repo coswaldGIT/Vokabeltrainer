@@ -264,8 +264,8 @@ function listenOnce(lang, onResult, onError, onSlow) {
 }
 const PERMISSION_HINT = 'Der Browser fragt vielleicht gerade nach dem Mikrofon: Klicke oben neben der Adresszeile auf „Zulassen“.';
 const ASR_ERR = {
-  'not-allowed': 'Das Mikrofon ist nicht erlaubt. Erlaube es in der Adressleiste / in den Browser-Einstellungen.',
-  'service-not-allowed': 'Dieses Gerät erlaubt dem Browser keine Spracherkennung. iPhone/iPad: Einstellungen → Allgemein → Tastatur → „Diktierfunktion“ einschalten, Siri aktivieren und die App in Safari öffnen (nicht vom Home-Bildschirm). Android: Chrome verwenden und die Google-App bzw. „Sprachdienste von Google“ aktivieren. Du kannst trotzdem üben und dich selbst bewerten.',
+  'not-allowed': 'Das Mikrofon ist nicht erlaubt. Erlaube es in der Adressleiste / in den Browser-Einstellungen. Auf dem iPhone/iPad geht die Spracherkennung nur in Safari, nicht in Chrome oder DuckDuckGo.',
+  'service-not-allowed': 'Dieses Gerät erlaubt dem Browser keine Spracherkennung. iPhone/iPad: In den Einstellungen SIRI EINSCHALTEN (auch wenn du Siri nie benutzt) und „Diktierfunktion“ aktivieren (Einstellungen → Allgemein → Tastatur), Safari danach ganz schließen und neu öffnen. Die App muss in Safari laufen (nicht vom Home-Bildschirm, nicht in Chrome/DuckDuckGo). Android: Chrome verwenden und die Google-App bzw. „Sprachdienste von Google“ aktivieren. Du kannst trotzdem üben und dich selbst bewerten.',
   'no-speech': 'Ich habe nichts gehört. Versuch es noch mal – etwas lauter! Falls es immer so ist: Unter „Optionen“ gibt es einen Mikrofon-Test.',
   'audio-capture': 'Ich finde kein Mikrofon.',
   'network': 'Die Spracherkennung braucht Internet.',
