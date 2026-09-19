@@ -265,7 +265,7 @@ function listenOnce(lang, onResult, onError, onSlow) {
 const PERMISSION_HINT = 'Der Browser fragt vielleicht gerade nach dem Mikrofon: Klicke oben neben der Adresszeile auf „Zulassen“.';
 const ASR_ERR = {
   'not-allowed': 'Das Mikrofon ist nicht erlaubt. Erlaube es in der Adressleiste / in den Browser-Einstellungen.',
-  'service-not-allowed': 'Die Spracherkennung ist nicht erlaubt (auf dem iPad/iPhone: Einstellungen → Siri & Diktierfunktion aktivieren).',
+  'service-not-allowed': 'Dieses Gerät erlaubt dem Browser keine Spracherkennung. iPhone/iPad: Einstellungen → Allgemein → Tastatur → „Diktierfunktion“ einschalten, Siri aktivieren und die App in Safari öffnen (nicht vom Home-Bildschirm). Android: Chrome verwenden und die Google-App bzw. „Sprachdienste von Google“ aktivieren. Du kannst trotzdem üben und dich selbst bewerten.',
   'no-speech': 'Ich habe nichts gehört. Versuch es noch mal – etwas lauter! Falls es immer so ist: Unter „Optionen“ gibt es einen Mikrofon-Test.',
   'audio-capture': 'Ich finde kein Mikrofon.',
   'network': 'Die Spracherkennung braucht Internet.',
@@ -452,11 +452,12 @@ function viewPractice() {
     body = `<span class="chip">🎤 Sprechen</span>
       <div class="plabel">Höre zu und sprich nach:</div><div class="bigword">${esc(w.f)}</div><div class="tr">${esc(w.d)}</div>
       <div class="row center" style="margin-bottom:12px">${speakBtns(it)}</div>${msgHTML(it)}
-      ${SR ? `<button class="btn primary big mic ${it.listening ? 'live' : ''}" data-act="mic" ${it.listening ? 'disabled' : ''}>${it.listening ? '🎙️ Ich höre zu …' : '🎤 Jetzt sprechen'}</button>
+      ${SR && !S.srBlocked ? `<button class="btn primary big mic ${it.listening ? 'live' : ''}" data-act="mic" ${it.listening ? 'disabled' : ''}>${it.listening ? '🎙️ Ich höre zu …' : '🎤 Jetzt sprechen'}</button>
               ${it.listening && it.slow ? `<div class="panel warn">⏳ ${PERMISSION_HINT}</div>` : ''}
               <div class="row center" style="margin-top:10px">${it.listening ? '<button class="btn small ghost" data-act="micCancel">Abbrechen</button>' : ''}${(it.tries >= 1 || it.msg) && !it.listening ? '<button class="btn small ghost" data-act="skip">Überspringen</button>' : ''}</div>`
-          : `<p class="tr">Sprich das Wort laut nach. Hat es geklappt?</p>
-             <div class="row center"><button class="btn good big" data-act="selfok">✅ Ja</button><button class="btn big" data-act="selfno">🔁 Noch üben</button></div>`}`;
+          : `<p class="tr">${S.srBlocked ? 'Die Spracherkennung geht auf diesem Gerät gerade nicht – du kannst trotzdem üben. ' : ''}<b>Sprich das Wort laut nach.</b> Hat es geklappt?</p>
+             <div class="row center"><button class="btn good big" data-act="selfok">✅ Ja</button><button class="btn big" data-act="selfno">🔁 Noch üben</button></div>
+             ${S.srBlocked ? '<div class="row center" style="margin-top:8px"><button class="btn small ghost" data-act="retryMic">Spracherkennung nochmal versuchen</button></div>' : ''}`}`;
   }
   return `<div class="card"><button class="btn small ghost end" data-act="endSession">✕ Beenden</button>
     <div class="prog" style="clear:both"><i style="width:${s.idx / s.queue.length * 100}%"></i></div>
@@ -619,9 +620,13 @@ const ACT = {
       it.listening = false;
       if (alts.some(x => speechMatch(x, it.w))) finish(it, it.tries === 0 ? 'right' : 'assisted');
       else { it.tries++; it.msg = { t: 'bad', text: `Ich habe „${alts[0]}“ verstanden. Hör noch mal zu und versuch es nochmal!` }; sfx.bad(); render(); }
-    }, err => { it.listening = false; it.slow = false; it.msg = { t: 'warn', text: (ASR_ERR[err] || 'Das hat nicht geklappt. Versuch es noch mal.') + ` (Code: ${err})` }; render(); },
+    }, err => {
+      it.listening = false; it.slow = false;
+      if (err === 'service-not-allowed') S.srBlocked = true;   // Gerät erlaubt keine Spracherkennung: ab jetzt selbst bewerten
+      it.msg = { t: 'warn', text: (ASR_ERR[err] || 'Das hat nicht geklappt. Versuch es noch mal.') + ` (Code: ${err})` }; render(); },
     () => { if (S.session && cur() === it && it.listening) { it.slow = true; render(); } });
   },
+  retryMic: () => { S.srBlocked = false; if (cur()) cur().msg = null; render(); },
   micCancel: () => {
     const it = cur(); if (!it) return;
     if (activeRec) { activeRec.onresult = activeRec.onerror = activeRec.onend = null; try { activeRec.abort(); } catch (e) {} }
