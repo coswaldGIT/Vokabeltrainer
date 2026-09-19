@@ -397,11 +397,17 @@ function viewHome() {
   </div>`;
 }
 
-function keysHTML(l) { const a = LANGS[l].accents; return a.length ? `<div class="keys" aria-label="Sonderzeichen">${a.map(c => `<button type="button" class="key" data-act="ins" data-ch="${c}">${c}</button>`).join('')}</div>` : ''; }
+/** Sonderzeichen-Tasten. Beim Abschreiben genau die Zeichen des Wortes, sonst alle Akzente plus ' und -. */
+function keysHTML(w, copy) {
+  const need = [...new Set([...w.alts.join('')].map(c => c === '’' ? "'" : c.toLowerCase())
+    .filter(c => c === "'" || c === '-' || (c.charCodeAt(0) > 127 && /\p{L}/u.test(c))))];
+  const keys = copy ? need : [...new Set([...LANGS[w.lang].accents, "'", '-', ...need])];
+  return keys.length ? `<div class="keys" aria-label="Sonderzeichen">${keys.map(c => `<button type="button" class="key" data-act="ins" data-ch="${esc(c)}" aria-label="Zeichen ${esc(c)}">${esc(c)}</button>`).join('')}</div>` : '';
+}
 const speakBtns = it => HAS_TTS ? `<button type="button" class="btn" data-act="say" aria-label="Wort anhören">🔊 Anhören</button><button type="button" class="btn" data-act="slow" aria-label="Langsam anhören">🐢 Langsam</button>` : '';
 const msgHTML = it => it.msg ? `<div class="panel ${it.msg.t}">${esc(it.msg.text)}</div>` : '';
 function answerForm(it, form, btn) {
-  return `<form class="ans" data-form="${form}"><input id="answer" class="answer" type="text" inputmode="text" enterkeyhint="go" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" lang="${it.w.lang}" aria-label="Antwort" value="${esc(it.ans || '')}"><button class="btn primary" type="submit">${btn}</button></form>${keysHTML(it.w.lang)}`;
+  return `<form class="ans" data-form="${form}"><input id="answer" class="answer" type="text" inputmode="text" enterkeyhint="go" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" lang="${it.w.lang}" aria-label="Antwort" value="${esc(it.ans || '')}"><button class="btn primary" type="submit">${btn}</button></form>${keysHTML(it.w, it.phase === 'copy')}`;
 }
 
 function viewPractice() {
@@ -418,7 +424,8 @@ function viewPractice() {
     body = `<div class="panel bad"><b>Nicht ganz.</b><div class="plabel" style="color:inherit">Richtig ist:</div>
       <div class="solution">${esc(w.f)}</div><div>${esc(w.d)}</div>${also}
       <div class="row center" style="margin-top:8px">${speakBtns(it)}</div></div>
-      <p><b>Schreibe das Wort zur Übung einmal ab:</b></p>${msgHTML(it)}${answerForm(it, 'copy', 'OK')}`;
+      <p><b>Schreibe das Wort zur Übung einmal ab:</b></p>${msgHTML(it)}${answerForm(it, 'copy', 'OK')}
+      ${it.copyFails >= 2 ? '<div class="row center"><button type="button" class="btn ghost" data-act="next">Trotzdem weiter ➜</button></div>' : ''}`;
   } else if (it.kind === 'write') {
     body = `<span class="chip">✍️ Schreiben</span>
       <div class="plabel">Wie heißt das auf ${L.name}?</div><div class="bigword">${esc(w.d)}</div>
@@ -621,7 +628,8 @@ function submitAnswer() {
   it.ans = val;
   if (it.phase === 'copy') {
     if (j.r === 'ok') { sfx.ok(); it.ans = ''; return next(); }
-    it.msg = { t: 'warn', text: 'Noch nicht ganz – schreibe das Wort genau so ab.' }; return render();
+    it.copyFails = (it.copyFails || 0) + 1;
+    it.msg = { t: 'warn', text: 'Noch nicht ganz – schreibe das Wort genau so ab. Sonderzeichen findest du in den Tasten unter dem Feld.' }; return render();
   }
   if (j.r === 'ok') finish(it, it.tries === 0 && !it.hint ? 'right' : 'assisted');
   else if (j.r === 'near' && it.tries === 0) { it.tries++; it.msg = { t: 'warn', text: j.hint }; sfx.near(); render(); }
