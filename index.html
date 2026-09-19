@@ -247,21 +247,30 @@ function speak(text, lang, slow) {
     speechSynthesis.speak(u);
   } catch (e) {}
 }
-function listenOnce(lang, onResult, onError) {
-  const r = new SR(); let done = false;
+/** Hört einmal zu. onSlow: der Browser wartet vermutlich auf die Mikrofon-Freigabe (nach 2,5 s ohne Start).
+ *  Startet die Erkennung nicht innerhalb von 20 s, wird mit dem Fehler 'timeout' abgebrochen. */
+function listenOnce(lang, onResult, onError, onSlow) {
+  const r = new SR(); let done = false, started = false;
+  const slow = setTimeout(() => { if (!started && !done && onSlow) onSlow(); }, 2500);
+  const giveUp = setTimeout(() => { if (!started && !done) { done = true; try { r.abort(); } catch (e) {} onError('timeout'); } }, 20000);
+  const end = () => { done = true; clearTimeout(slow); clearTimeout(giveUp); };
   r.lang = langCode(lang); r.interimResults = false; r.maxAlternatives = 5; r.continuous = false;
-  r.onresult = e => { if (done) return; done = true; onResult([...e.results[0]].map(x => x.transcript)); };
-  r.onerror = e => { if (done) return; done = true; onError(e.error); };
-  r.onend = () => { if (done) return; done = true; onError('no-speech'); };
-  try { r.start(); } catch (e) { done = true; onError('start'); }
+  r.onstart = () => { started = true; clearTimeout(slow); clearTimeout(giveUp); };
+  r.onresult = e => { if (done) return; end(); onResult([...e.results[0]].map(x => x.transcript)); };
+  r.onerror = e => { if (done) return; end(); onError(e.error); };
+  r.onend = () => { if (done) return; end(); onError('no-speech'); };
+  try { r.start(); } catch (e) { end(); onError('start'); }
   return r;
 }
+const PERMISSION_HINT = 'Der Browser fragt vielleicht gerade nach dem Mikrofon: Klicke oben neben der Adresszeile auf „Zulassen“.';
 const ASR_ERR = {
   'not-allowed': 'Das Mikrofon ist nicht erlaubt. Erlaube es in der Adressleiste / in den Browser-Einstellungen.',
   'service-not-allowed': 'Die Spracherkennung ist nicht erlaubt (auf dem iPad/iPhone: Einstellungen → Siri & Diktierfunktion aktivieren).',
-  'no-speech': 'Ich habe nichts gehört. Versuch es noch mal – etwas lauter!',
+  'no-speech': 'Ich habe nichts gehört. Versuch es noch mal – etwas lauter! Falls es immer so ist: Unter „Optionen“ gibt es einen Mikrofon-Test.',
   'audio-capture': 'Ich finde kein Mikrofon.',
   'network': 'Die Spracherkennung braucht Internet.',
+  'timeout': 'Der Browser hat kein Mikrofon bekommen. Klicke oben neben der Adresszeile auf „Zulassen“ und versuche es dann noch mal.',
+  'aborted': 'Abgebrochen.',
 };
 let actx = null;
 function tone(freqs, dur = 0.12) {
@@ -444,7 +453,8 @@ function viewPractice() {
       <div class="plabel">Höre zu und sprich nach:</div><div class="bigword">${esc(w.f)}</div><div class="tr">${esc(w.d)}</div>
       <div class="row center" style="margin-bottom:12px">${speakBtns(it)}</div>${msgHTML(it)}
       ${SR ? `<button class="btn primary big mic ${it.listening ? 'live' : ''}" data-act="mic" ${it.listening ? 'disabled' : ''}>${it.listening ? '🎙️ Ich höre zu …' : '🎤 Jetzt sprechen'}</button>
-              ${it.tries >= 1 ? '<div class="row center" style="margin-top:10px"><button class="btn small ghost" data-act="skip">Überspringen</button></div>' : ''}`
+              ${it.listening && it.slow ? `<div class="panel warn">⏳ ${PERMISSION_HINT}</div>` : ''}
+              <div class="row center" style="margin-top:10px">${it.listening ? '<button class="btn small ghost" data-act="micCancel">Abbrechen</button>' : ''}${(it.tries >= 1 || it.msg) && !it.listening ? '<button class="btn small ghost" data-act="skip">Überspringen</button>' : ''}</div>`
           : `<p class="tr">Sprich das Wort laut nach. Hat es geklappt?</p>
              <div class="row center"><button class="btn good big" data-act="selfok">✅ Ja</button><button class="btn big" data-act="selfno">🔁 Noch üben</button></div>`}`;
   }
@@ -564,7 +574,18 @@ function viewSettings() {
       <label>Sprechtempo: ${st.rate.toFixed(2)}<input type="range" min="0.6" max="1.1" step="0.05" value="${st.rate}" data-input="rate"></label></div>
     <label class="sw"><input type="checkbox" data-change="sound" ${st.sound ? 'checked' : ''}> Töne bei richtig / falsch</label>
     <p class="muted" style="font-size:.9rem">Fehlt eine Stimme? <b>Windows:</b> Einstellungen → Zeit &amp; Sprache → Sprache &amp; Region → Sprache hinzufügen (Französisch, mit Sprachausgabe); <b>Microsoft Edge</b> hat zusätzlich sehr gute Online-Stimmen („… Natural“). <b>iPad/iPhone:</b> Einstellungen → Bedienungshilfen → Gesprochene Inhalte → Stimmen. <b>Android:</b> Einstellungen → Sprachausgabe.</p>
-    <p class="muted" style="font-size:.9rem">Spracherkennung (Finny spricht): ${SR ? '✅ verfügbar' : '❌ in diesem Browser nicht verfügbar (Chrome, Edge oder Safari nutzen)'}. Beim ersten Mal fragt der Browser nach dem Mikrofon – „Erlauben“ wählen.</p></div>
+    <p class="muted" style="font-size:.9rem">Spracherkennung (Finny spricht): ${SR ? '✅ verfügbar' : '❌ in diesem Browser nicht verfügbar (Chrome, Edge oder Safari nutzen)'}. Beim ersten Mal fragt der Browser nach dem Mikrofon – „Erlauben“ wählen.</p>
+    <h3 style="margin-top:14px">🎤 Mikrofon-Test</h3>
+    <p class="muted" style="font-size:.9rem">Drücke einen Knopf und sprich ein Wort. Der Test zeigt, was der Browser hört – und wo es hakt.</p>
+    <div class="row"><button class="btn" data-act="micTest" data-lang="fr">🇫🇷 Test Französisch</button><button class="btn" data-act="micTest" data-lang="en">🇬🇧 Test Englisch</button></div>
+    <div id="micTestOut" style="margin-top:10px"></div>
+    <details style="margin-top:8px"><summary>Hört nichts? Das kann man prüfen</summary>
+      <ol class="muted" style="font-size:.9rem;padding-left:20px">
+        <li>In der Adresszeile auf das Schloss-Symbol klicken → <b>Mikrofon → Zulassen</b>, dann Seite neu laden.</li>
+        <li>Windows: Einstellungen → Datenschutz &amp; Sicherheit → <b>Mikrofon</b> → Zugriff für Apps und für den Browser erlauben.</li>
+        <li>Windows: Datenschutz &amp; Sicherheit → <b>Spracherkennung</b> → „Online-Spracherkennung“ einschalten.</li>
+        <li>Windows: Einstellungen → System → Sound → <b>Eingabe</b>: das richtige Mikrofon wählen, Pegel prüfen.</li>
+      </ol></details></div>
   <div class="card"><h2>Sicherung</h2>
     <p class="muted">Der Fortschritt liegt in diesem Browser auf diesem Gerät. Zum Umziehen auf ein anderes Gerät: hier speichern und dort laden.</p>
     <div class="row"><button class="btn" data-act="exportBackup">💾 Sicherung speichern</button>
@@ -593,12 +614,18 @@ const ACT = {
   mic: () => {
     const it = cur(); if (it.listening) return;
     if (HAS_TTS) speechSynthesis.cancel();
-    it.listening = true; it.msg = null; render();
+    it.listening = true; it.slow = false; it.msg = null; render();
     activeRec = listenOnce(it.w.lang, alts => {
       it.listening = false;
       if (alts.some(x => speechMatch(x, it.w))) finish(it, it.tries === 0 ? 'right' : 'assisted');
       else { it.tries++; it.msg = { t: 'bad', text: `Ich habe „${alts[0]}“ verstanden. Hör noch mal zu und versuch es nochmal!` }; sfx.bad(); render(); }
-    }, err => { it.listening = false; it.msg = { t: 'warn', text: ASR_ERR[err] || 'Das hat nicht geklappt. Versuch es noch mal.' }; render(); });
+    }, err => { it.listening = false; it.slow = false; it.msg = { t: 'warn', text: (ASR_ERR[err] || 'Das hat nicht geklappt. Versuch es noch mal.') + ` (Code: ${err})` }; render(); },
+    () => { if (S.session && cur() === it && it.listening) { it.slow = true; render(); } });
+  },
+  micCancel: () => {
+    const it = cur(); if (!it) return;
+    if (activeRec) { activeRec.onresult = activeRec.onerror = activeRec.onend = null; try { activeRec.abort(); } catch (e) {} }
+    it.listening = false; it.slow = false; render();
   },
   skip: () => { const it = cur(); finish(it, 'wrong'); },
   selfok: () => finish(cur(), 'right'),
@@ -613,6 +640,32 @@ const ACT = {
   },
   delCustom: el => { const l = DB.custom.find(x => x.id === el.dataset.id); if (l && confirm(`Liste „${l.name}“ wirklich löschen?`)) { DB.custom = DB.custom.filter(x => x !== l); saveDB(); render(); } },
   testVoice: el => speak(LANGS[el.dataset.lang].sample, el.dataset.lang),
+  micTest: el => {
+    const out = $('#micTestOut'), l = el.dataset.lang;
+    const ua = navigator.userAgent, browser = /Edg\//.test(ua) ? 'Edge' : /Firefox\//.test(ua) ? 'Firefox' : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : 'unbekannt';
+    if (!SR) { out.innerHTML = `❌ ${browser}: Dieser Browser kann nicht zuhören. Bitte Edge, Chrome oder Safari nutzen.`; return; }
+    try { activeRec && activeRec.abort(); } catch (e) {}
+    if (HAS_TTS) speechSynthesis.cancel();
+    const st = { start: 0, audio: 0, sound: 0, speech: 0 }; let heard = '', problem = '';
+    const mark = b => b ? '✅' : '⬜';
+    const show = () => { out.innerHTML = `<div class="muted" style="font-size:.85rem">Browser: ${browser} · Sprache: ${langCode(l)}</div>
+      <div>${mark(st.start)} Erkennung gestartet</div><div>${mark(st.audio)} Mikrofon liefert Ton</div>
+      <div>${mark(st.sound)} Geräusch erkannt</div><div>${mark(st.speech)} Sprache erkannt</div>
+      ${heard ? `<p>Gehört: <b>„${esc(heard)}“</b></p>` : ''}${problem ? `<p>${problem}</p>` : ''}`; };
+    let r; try { r = new SR(); } catch (e) { out.textContent = '❌ Die Spracherkennung lässt sich nicht starten.'; return; }
+    activeRec = r; r.lang = langCode(l); r.continuous = false; r.interimResults = true; r.maxAlternatives = 3;
+    r.onstart = () => { st.start = 1; show(); };
+    r.onaudiostart = () => { st.audio = 1; show(); };
+    r.onsoundstart = () => { st.sound = 1; show(); };
+    r.onspeechstart = () => { st.speech = 1; show(); };
+    r.onresult = e => { heard = [...e.results[e.results.length - 1]].map(x => x.transcript)[0]; show(); };
+    r.onerror = e => { problem = `❌ ${esc(ASR_ERR[e.error] || 'Das hat nicht geklappt.')} <span class="muted">(Code: ${esc(e.error)})</span>`; show(); };
+    r.onend = () => { if (!heard && !problem) problem = st.audio ? '⚠️ Beendet, ohne etwas zu verstehen. Sprich lauter und deutlicher, gleich nach dem Start.' : '⚠️ Das Mikrofon hat keinen Ton geliefert. Siehe „Hört nichts?“ unten.'; else if (heard) problem = '✅ Das Mikrofon funktioniert.'; show(); };
+    setTimeout(() => { if (activeRec === r && !st.start && !problem) { problem = '⏳ ' + PERMISSION_HINT; show(); } }, 2500);
+    setTimeout(() => { if (activeRec === r && !st.start) { r.onend = null; try { r.abort(); } catch (e) {} problem = '❌ ' + esc(ASR_ERR.timeout) + ' <span class="muted">(Code: timeout)</span>'; show(); } }, 20000);
+    out.innerHTML = '🎙️ Sprich jetzt ein Wort …';
+    try { r.start(); } catch (e) { out.textContent = '❌ Start nicht möglich: ' + e.message; }
+  },
   exportBackup: () => {
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(DB)], { type: 'application/json' }));
     a.download = `vokabeltrainer-sicherung-${dayKey()}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
