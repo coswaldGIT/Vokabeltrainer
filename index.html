@@ -30,10 +30,10 @@ body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.45 system-ui,"Se
 h1,h2,h3{line-height:1.2;margin:0 0 .5em}
 h2{font-size:1.25rem} h3{font-size:1.05rem}
 p{margin:.4em 0} .muted{color:var(--muted)} code{background:var(--pri-soft);padding:1px 6px;border-radius:6px;font-size:.92em}
-.top{max-width:820px;margin:0 auto;padding:14px 16px 0;display:flex;align-items:center;justify-content:space-between;gap:12px}
+.top{max-width:820px;margin:0 auto;padding:14px 16px 0;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px 12px}
 .top h1{font-size:1.35rem;margin:0}
 nav{display:flex;gap:6px}
-nav button{border:0;background:transparent;color:var(--muted);font:inherit;font-weight:600;padding:8px 12px;border-radius:12px;cursor:pointer;min-height:44px}
+nav button{border:0;background:transparent;color:var(--muted);font:inherit;font-weight:600;padding:8px 9px;white-space:nowrap;border-radius:12px;cursor:pointer;min-height:44px}
 nav button.on{background:var(--pri-soft);color:var(--pri)}
 body.practice nav{display:none}
 main{max-width:820px;margin:0 auto;padding:12px 16px 40px}
@@ -67,6 +67,11 @@ details.wl summary{cursor:pointer;padding:12px 0;min-height:48px;display:flex;fl
 .wf{display:flex;flex-direction:column;min-width:0;overflow-wrap:anywhere}
 .wf small{color:var(--muted);font-size:.85rem}
 .wrow.off .wf{opacity:.5;text-decoration:line-through}
+.vend{color:var(--pri);font-weight:800}
+table.vt td:first-child{color:var(--muted);white-space:nowrap}
+table.vt td.vf{font-size:1.15rem}
+.vhint{text-align:center;font-size:1.3rem;margin:0 0 10px}
+.vhint small{display:block;color:var(--muted);font-size:.85rem;letter-spacing:0}
 .lists{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px}
 .lcard{position:relative;display:grid;grid-template-columns:auto 1fr;gap:2px 10px;align-items:center;border:2px solid var(--line);border-radius:14px;padding:12px;cursor:pointer;background:var(--card)}
 .lcard.on{border-color:var(--pri);background:var(--pri-soft)}
@@ -126,7 +131,8 @@ th{color:var(--muted);font-weight:600}
   .top{flex-direction:column;align-items:flex-start;padding-bottom:0}
   nav{position:fixed;left:0;right:0;bottom:0;z-index:5;background:var(--card);border-top:1px solid var(--line);
     padding:6px 8px calc(6px + env(safe-area-inset-bottom));justify-content:space-around}
-  nav button{flex:1;padding:8px 4px;font-size:.85rem}
+  nav button{flex:1;padding:6px 2px;font-size:.78rem;line-height:1.2}
+  nav button span{display:block;font-size:1.2rem}
   main{padding-bottom:96px}
   body.practice main{padding-bottom:30px}
 }
@@ -136,16 +142,18 @@ th{color:var(--muted);font-weight:600}
 <header class="top">
   <h1>📚 Finnys Vokabeltrainer</h1>
   <nav aria-label="Hauptmenü">
-    <button data-act="nav" data-v="home">🏠 Üben</button>
-    <button data-act="nav" data-v="stats">📊 Statistik</button>
-    <button data-act="nav" data-v="lists">📝 Listen</button>
-    <button data-act="nav" data-v="settings">⚙️ Optionen</button>
+    <button data-act="nav" data-v="home"><span>🏠</span> Üben</button>
+    <button data-act="nav" data-v="grammar"><span>🧩</span> Grammatik</button>
+    <button data-act="nav" data-v="stats"><span>📊</span> Statistik</button>
+    <button data-act="nav" data-v="lists"><span>📝</span> Listen</button>
+    <button data-act="nav" data-v="settings"><span>⚙️</span> Optionen</button>
   </nav>
 </header>
 <main id="app"></main>
 <div id="toast" role="status" aria-live="polite"></div>
 
 <script src="vokabeln.js" charset="utf-8"></script>
+<script src="verben.js" charset="utf-8"></script>
 <script>
 'use strict';
 /* ═════════════ Helfer ═════════════ */
@@ -172,7 +180,7 @@ const MODES = [
 /* ═════════════ Speicher ═════════════ */
 const LS_KEY = 'finny-vokabeltrainer-v1';
 /* off: abgestellte Wörter { Wort-Schlüssel: 1 }. modes: gewählte Übungsarten. speakTol: 0 genau, 1 normal, 2 großzügig. meter: Lautstärke-Anzeige. */
-const defaultDB = () => ({ settings: { rate: 0.9, sound: true, size: 10, voices: {}, enVariant: 'en-GB', modes: null, speakTol: 1, meter: true }, custom: [], words: {}, days: {}, off: {} });
+const defaultDB = () => ({ settings: { rate: 0.9, sound: true, size: 10, voices: {}, enVariant: 'en-GB', modes: null, verbs: null, speakTol: 1, meter: true }, custom: [], words: {}, days: {}, off: {} });
 function loadDB() {
   try {
     const raw = localStorage.getItem(LS_KEY);
@@ -384,12 +392,65 @@ function record(w, res, kind) {
 function buildQueue(listIds, size) {
   const map = new Map();
   for (const l of allLists()) if (listIds.includes(l.id)) for (const w of wordsOfList(l)) if (!DB.off[w.key]) map.set(w.key, w);
+  return pickWords([...map.values()], size);
+}
+/** Wählt size Wörter: zuerst die fälligen, mit den niedrigsten Kästchen; dann gemischt. */
+function pickWords(words, size) {
   const today = dayNum();
-  const arr = [...map.values()].map(w => { const p = DB.words[w.key]; return { w, box: p ? p.box : 0, due: p ? p.due : 0, j: Math.random() }; });
+  const arr = words.map(w => { const p = DB.words[w.key]; return { w, box: p ? p.box : 0, due: p ? p.due : 0, j: Math.random() }; });
   const byPrio = (a, b) => a.box - b.box || a.j - b.j;
   const dueNow = arr.filter(x => x.due <= today).sort(byPrio), later = arr.filter(x => x.due > today).sort(byPrio);
   return shuffle([...dueNow, ...later].slice(0, size).map(x => x.w));
 }
+
+/* ═════════════ Grammatik: Verben im Présent ═════════════ */
+const PERS = [
+  { fr: ['je'],           show: 'je',          de: 'ich' },
+  { fr: ['tu'],           show: 'tu',          de: 'du' },
+  { fr: ['il', 'elle'],   show: 'il / elle',   de: 'er / sie / es' },
+  { fr: ['nous'],         show: 'nous',        de: 'wir' },
+  { fr: ['vous'],         show: 'vous',        de: 'ihr / Sie' },
+  { fr: ['ils', 'elles'], show: 'ils / elles', de: 'sie (Mehrzahl)' },
+];
+const ER_END = ['e', 'es', 'e', 'ons', 'ez', 'ent'];   // Endungen der Verben auf -er
+const verbList = () => window.VERBEN || [];
+const conjKey = (v, i) => 'fr|v|' + v.id + '|' + PERS[i].fr[0];
+const vowelStart = s => /^[aeiouyhàâéèêëîïôûùœ]/i.test(s);
+/** Die sechs Formen eines Verbs: {stem, end} (regelmäßig auf -er) oder {whole} (von Hand eingetragen). */
+function conjForms(v) {
+  if (v.forms) return v.forms.map(whole => ({ whole }));
+  const stem = v.inf.replace(/er$/, '');
+  return ER_END.map(end => ({ stem, end }));
+}
+/** „Wort“ für die Übung: Person i von Verb v. f = Lösung mit Pronomen, alts = auch ohne Pronomen und mit elle/elles richtig. */
+function conjWord(v, i) {
+  const f = conjForms(v)[i], form = f.whole || f.stem + f.end, pr = PERS[i];
+  const lead = p => i === 0 ? (vowelStart(form) ? "j'" : 'je ') : p + ' ';
+  const alts = [...pr.fr.map(p => lead(p) + form), form];
+  return { lang: 'fr', f: alts[0], alts, d: `${v.inf} (${v.de}) – ${pr.show} (${pr.de})`, key: conjKey(v, i),
+    conj: { v, i, form, stem: f.stem, end: f.end, lead: i === 0 ? lead() : pr.show.replace(' / ', '/') + ' ' } };
+}
+/** Lösung mit farbiger Endung (bei unregelmäßigen Verben ohne Farbe). */
+const solHTML = w => !w.conj ? esc(w.f) : esc(w.conj.lead) + (w.conj.stem != null ? esc(w.conj.stem) + `<span class="vend">${esc(w.conj.end)}</span>` : esc(w.conj.form));
+/** Prüft eine Verbform wie judge(), mit passenden Hinweisen (j'-Regel, Endung). */
+function judgeConj(ans, w) {
+  const j = judge(ans, w);
+  if (j.r === 'wrong' && w.conj.i === 0) {
+    const a = base(ans).replace(/^je (?=[aeiouyhàâéèêëîïôûùœ])/, "j'");
+    if (a !== base(ans) && w.alts.some(v => base(v) === a)) return { r: 'near', hint: 'Fast! Vor einem Vokal oder stummen h wird aus „je“ ein „j’“.' };
+  }
+  if (j.r === 'near' && /Buchstabe/.test(j.hint)) j.hint = 'Fast! Schau noch mal genau auf die Endung.';
+  return j;
+}
+/** Tipp-Text: erst der Stamm, dann alle Endungen; bei unregelmäßigen Verben der erste Buchstabe. */
+function conjHint(w, level) {
+  const c = w.conj;
+  if (c.stem == null) return `<div class="hintline">${esc(hintPattern(c.form))}</div>`;
+  const ends = level >= 2 ? `<small>Endungen: ${ER_END.map((e, i) => `${esc(PERS[i].show)} <span class="vend">-${e}</span>`).join(' · ')}</small>` : '';
+  return `<div class="vhint">Stamm: <b>${esc(c.stem)}</b> + Endung${ends}</div>`;
+}
+const verbProgress = v => { let m = 0; for (let i = 0; i < 6; i++) { const p = DB.words[conjKey(v, i)]; if (p && p.box >= MASTERED) m++; } return m; };
+const initVerbs = () => new Set(Array.isArray(DB.settings.verbs) ? DB.settings.verbs.filter(id => verbList().some(v => v.id === id)) : verbList().map(v => v.id));
 
 /* ═════════════ Zustand ═════════════ */
 /** Gewählte Übungsarten (mehrere möglich). Beim ersten Mal: alles, was das Gerät kann. */
@@ -398,7 +459,8 @@ function initModes() {
   const m = (DB.settings.modes || []).filter(x => MODE_IDS.includes(x));
   return new Set(m.length ? m : (SR && HAS_TTS ? MODE_IDS : MODE_IDS.filter(x => x !== 'speak')));
 }
-const S = { view: 'home', lang: 'fr', modes: initModes(), open: new Set(), sel: {}, session: null, imp: { lang: 'fr', name: '', text: '', foreignFirst: true } };
+const saveVerbs = () => { DB.settings.verbs = [...S.verbs]; saveDB(); };
+const S = { view: 'home', lang: 'fr', modes: initModes(), verbs: initVerbs(), open: new Set(), sel: {}, session: null, imp: { lang: 'fr', name: '', text: '', foreignFirst: true } };
 const cur = () => S.session && S.session.queue[S.session.idx];
 
 const mkItem = (w, repeat, kind) => ({ w, kind, repeat, phase: 'ask', tries: 0, miss: 0, hint: 0, ans: '', msg: null, play: true, meaning: false, listening: false, res: null });
@@ -411,6 +473,14 @@ function startSession() {
   /* Reihum verteilen und mischen: so kommt jede gewählte Übungsart in der Runde wirklich vor. */
   const modes = MODE_IDS.filter(id => S.modes.has(id)), kinds = shuffle(words.map((_, i) => modes[i % modes.length]));
   S.session = { queue: words.map((w, i) => mkItem(w, false, kinds[i])), idx: 0, res: { right: 0, assisted: 0, wrong: 0 }, missed: new Map(), requeued: new Set() };
+  S.view = 'practice'; render();
+}
+function startGrammar() {
+  const all = [];
+  for (const v of verbList()) if (S.verbs.has(v.id)) for (let i = 0; i < PERS.length; i++) all.push(conjWord(v, i));
+  if (!all.length) return toast('Wähle mindestens ein Verb aus.');
+  const words = pickWords(all, DB.settings.size);
+  S.session = { queue: words.map(w => mkItem(w, false, 'conj')), idx: 0, res: { right: 0, assisted: 0, wrong: 0 }, missed: new Map(), requeued: new Set(), grammar: true };
   S.view = 'practice'; render();
 }
 function finish(it, res) {
@@ -436,15 +506,15 @@ function stopListening() {
   if (activeRec) { if (activeRec.cancel) activeRec.cancel(); activeRec.onresult =activeRec.onerror = activeRec.onend = activeRec.onaudiostart = activeRec.onstart = null; try { activeRec.abort(); } catch (e) {} activeRec = null; }
   stopMeter();
 }
-function endSession() { if (HAS_TTS) speechSynthesis.cancel(); stopListening(); S.session = null; S.view = 'home'; render(); }
+function endSession() { if (HAS_TTS) speechSynthesis.cancel(); stopListening(); S.view = S.session && S.session.grammar ? 'grammar' : 'home'; S.session = null; render(); }
 let activeRec = null;
 
 /* ═════════════ Ansichten ═════════════ */
-const VIEWS = { home: viewHome, practice: viewPractice, summary: viewSummary, stats: viewStats, lists: viewLists, settings: viewSettings };
+const VIEWS = { home: viewHome, grammar: viewGrammar, practice: viewPractice, summary: viewSummary, stats: viewStats, lists: viewLists, settings: viewSettings };
 function render() {
   document.body.classList.toggle('practice', S.view === 'practice');
   $('#app').innerHTML = VIEWS[S.view]();
-  document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.v === S.view || (S.view === 'summary' && b.dataset.v === 'home')));
+  document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.v === S.view || (S.view === 'summary' && b.dataset.v === (S.session && S.session.grammar ? 'grammar' : 'home'))));
   if (S.view === 'practice') {
     const it = cur();
     if (it.play) { it.play = false; if (it.kind === 'listen' || it.kind === 'speak') setTimeout(() => speak(it.w.f, it.w.lang), 200); }
@@ -497,6 +567,35 @@ function viewHome() {
   </div>`;
 }
 
+/* ── Grammatik ── */
+function conjTableHTML(v) {
+  return `<table class="vt">${PERS.map((P, i) => { const w = conjWord(v, i);
+    return `<tr><td>${esc(P.show)}<br><small>${esc(P.de)}</small></td><td class="vf">${solHTML(w)}</td><td style="text-align:right">${HAS_TTS ? `<button type="button" class="btn small" data-act="sayw" data-lang="fr" data-text="${esc(w.f)}" aria-label="${esc(w.f)} anhören">🔊</button>` : ''}</td></tr>`; }).join('')}</table>`;
+}
+function viewGrammar() {
+  const vs = verbList(), sample = vs.find(v => v.id === 'regarder') || vs.find(v => !v.forms) || { inf: 'regarder', de: '' };
+  return `<div class="card"><h2>🧩 Grammatik: Verben im Présent</h2>
+    <p class="muted">Wähle die Verben, die du üben möchtest. Zu jedem Verb bekommst du eine Person, und du schreibst die richtige Form.</p>
+    ${vs.length ? `<div class="lists">${vs.map(v => { const on = S.verbs.has(v.id), m = verbProgress(v);
+      return `<label class="lcard ${on ? 'on' : ''}"><input type="checkbox" data-act="toggleVerb" data-id="${esc(v.id)}" ${on ? 'checked' : ''}>
+        <span class="emo">🧩</span><span class="lname">${esc(v.inf)}</span><span class="lmeta">${esc(v.de)} · ${m} von 6 Formen gelernt</span><span class="bar"><i style="width:${m / 6 * 100}%"></i></span></label>`; }).join('')}</div>
+      <div class="row" style="margin-top:10px"><button class="btn small ghost" data-act="verbAll">Alle</button><button class="btn small ghost" data-act="verbNone">Keine</button></div>` : '<p class="muted">Es sind noch keine Verben eingetragen.</p>'}
+    <div class="row" style="margin-top:14px">
+      <label for="vsize" style="font-weight:600">Formen pro Runde</label>
+      <select id="vsize" class="field" style="width:auto" data-change="size">${[5, 10, 15, 20, 30].map(n => `<option value="${n}" ${DB.settings.size === n ? 'selected' : ''}>${n}</option>`).join('')}</select></div>
+    <button class="btn primary big" style="width:100%;margin-top:14px" data-act="startGrammar">▶ Los geht's!</button></div>
+  <div class="card"><h2>📖 Merkkarte: Verben auf -er</h2>
+    <p>Bei Verben auf <b>-er</b> bleibt der <b>Stamm</b> gleich, nur die <b>Endung</b> ändert sich:</p>
+    ${conjTableHTML({ ...sample, id: 'demo' })}
+    <ul class="muted" style="padding-left:20px">
+      <li>Vor <b>a, e, i, o, u</b> und stummem <b>h</b> wird aus <b>je</b> ein <b>j’</b>: <i>j’aime, j’habite, j’arrive</i>.</li>
+      <li>Zum Hören: <i>je, tu, il/elle</i> und <i>ils/elles</i> klingen gleich. Nur bei <i>nous</i> und <i>vous</i> hört man die Endung – die anderen musst du also <b>schreiben</b> können.</li>
+      <li><b>être</b> (sein) ist unregelmäßig. Die Formen musst du auswendig lernen.</li></ul></div>
+  <div class="card"><h2>Alle Verbformen ansehen</h2>
+    ${vs.map(v => `<details class="wl" data-list="v-${esc(v.id)}" ${S.open.has('v-' + v.id) ? 'open' : ''}>
+      <summary><span style="font-size:1.4rem">🧩</span><b>${esc(v.inf)}</b><span class="muted">${esc(v.de)}${v.forms ? ' · unregelmäßig' : ''}</span></summary>${conjTableHTML(v)}</details>`).join('')}</div>`;
+}
+
 /** Sonderzeichen-Tasten. Beim Abschreiben genau die Zeichen des Wortes, sonst alle Akzente plus ' und -. */
 function keysHTML(w, copy) {
   const need = [...new Set([...w.alts.join('')].map(c => c === '’' ? "'" : c.toLowerCase())
@@ -512,20 +611,29 @@ function answerForm(it, form, btn) {
 
 function viewPractice() {
   const s = S.session, it = cur(), L = LANGS[it.w.lang], w = it.w;
-  const also = w.alts.length > 1 ? `<div class="muted">Auch richtig: ${esc(w.alts.slice(1).join(', '))}</div>` : '';
+  const also = w.alts.length > 1 && !w.conj ? `<div class="muted">Auch richtig: ${esc(w.alts.slice(1).join(', '))}</div>` : '';
   let body = '';
   if (it.phase === 'fb') {
     const good = it.res === 'right';
     body = `<div class="panel good"><b>${good ? 'Richtig! 🎉' : 'Geschafft – gut gemacht! 👍'}</b>
-      <div class="solution">${esc(w.f)}</div><div>${esc(w.d)}</div>${also}
+      <div class="solution">${solHTML(w)}</div><div>${esc(w.d)}</div>${also}
       <div class="row center" style="margin-top:8px">${speakBtns(it)}</div></div>
       <button id="nextBtn" class="btn primary big" style="width:100%" data-act="next">Weiter ➜</button>`;
   } else if (it.phase === 'copy') {
     body = `<div class="panel bad"><b>Nicht ganz.</b><div class="plabel" style="color:inherit">Richtig ist:</div>
-      <div class="solution">${esc(w.f)}</div><div>${esc(w.d)}</div>${also}
+      <div class="solution">${solHTML(w)}</div><div>${esc(w.d)}</div>${also}
       <div class="row center" style="margin-top:8px">${speakBtns(it)}</div></div>
       <p><b>Schreibe das Wort zur Übung einmal ab:</b></p>${msgHTML(it)}${answerForm(it, 'copy', 'OK')}
       ${it.copyFails >= 2 ? '<div class="row center"><button type="button" class="btn ghost" data-act="next">Trotzdem weiter ➜</button></div>' : ''}`;
+  } else if (it.kind === 'conj') {
+    const c = w.conj, P = PERS[c.i];
+    body = `<span class="chip">🧩 Verb im Présent</span>
+      <div class="plabel">Schreibe die richtige Form:</div>
+      <div class="bigword" style="margin-bottom:0">${esc(c.v.inf)}</div><div class="tr">${esc(c.v.de)}</div>
+      <div class="bigword" style="margin-bottom:0">${esc(P.show)}</div><div class="tr">${esc(P.de)}</div>
+      ${it.hint ? conjHint(w, it.hint) : ''}
+      ${msgHTML(it)}${answerForm(it, 'answer', 'Prüfen')}
+      <div class="row center"><button type="button" class="btn small ghost" data-act="hint">💡 ${c.stem == null ? 'Tipp: erster Buchstabe' : it.hint ? (it.hint < 2 ? 'Noch ein Tipp: die Endungen' : 'Tipp') : 'Tipp: der Stamm'}</button></div>`;
   } else if (it.kind === 'write') {
     body = `<span class="chip">✍️ Schreiben</span>
       <div class="plabel">Wie heißt das auf ${L.name}?</div><div class="bigword">${esc(w.d)}</div>
@@ -729,14 +837,18 @@ const ACT = {
   toggleList: el => { const s = S.sel[S.lang]; el.checked ? s.add(el.dataset.id) : s.delete(el.dataset.id); render(); },
   selAll: () => { S.sel[S.lang] = new Set(allLists().filter(l => l.lang === S.lang).map(l => l.id)); render(); },
   selNone: () => { S.sel[S.lang] = new Set(); render(); },
-  start: () => startSession(),
+  start: () => S.session && S.session.grammar ? startGrammar() : startSession(),   // „Nächste Runde“ bleibt beim Grammatik-Üben
   endSession: () => endSession(),
   next: () => next(),
   say: () => { const it = cur(); it && speak(it.w.f, it.w.lang); },
   slow: () => { const it = cur(); it && speak(it.w.f, it.w.lang, true); },
   sayw: el => speak(el.dataset.text, el.dataset.lang),
   meaning: () => { const it = cur(); it.ans = ($('#answer') || {}).value || ''; it.meaning = true; render(); },
-  hint: () => { const it = cur(); it.ans = ($('#answer') || {}).value || ''; it.hint++; if (it.hint >= 2 && HAS_TTS) speak(it.w.f, it.w.lang); render(); },
+  hint: () => { const it = cur(); it.ans = ($('#answer') || {}).value || ''; it.hint++; if (it.hint >= 2 && HAS_TTS && it.kind !== 'conj') speak(it.w.f, it.w.lang); render(); },
+  toggleVerb: el => { el.checked ? S.verbs.add(el.dataset.id) : S.verbs.delete(el.dataset.id); saveVerbs(); render(); },
+  verbAll: () => { S.verbs = new Set(verbList().map(v => v.id)); saveVerbs(); render(); },
+  verbNone: () => { S.verbs = new Set(); saveVerbs(); render(); },
+  startGrammar: () => startGrammar(),
   ins: el => { const i = $('#answer'); if (!i) return; const a = i.selectionStart ?? i.value.length, b = i.selectionEnd ?? a;
     i.value = i.value.slice(0, a) + el.dataset.ch + i.value.slice(b); i.focus(); i.setSelectionRange(a + 1, a + 1); },
   mic: () => {
@@ -825,7 +937,7 @@ const FORM = {
   answer: () => submitAnswer(), copy: () => submitAnswer(),
 };
 function submitAnswer() {
-  const it = cur(), val = ($('#answer') || {}).value || '', j = judge(val, it.w);
+  const it = cur(), val = ($('#answer') || {}).value || '', j = it.w.conj ? judgeConj(val, it.w) : judge(val, it.w);
   if (j.r === 'empty') return;
   it.ans = val;
   if (it.phase === 'copy') {
