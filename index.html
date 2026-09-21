@@ -55,6 +55,18 @@ main{max-width:820px;margin:0 auto;padding:12px 16px 40px}
 .mode{display:flex;flex-direction:column;gap:2px;text-align:left;font:inherit;background:var(--card);color:var(--ink);border:2px solid var(--line);border-radius:14px;padding:12px;cursor:pointer;min-height:76px}
 .mode b{font-size:1.05rem}.mode span{font-size:.88rem;color:var(--muted)}
 .mode.on{border-color:var(--pri);background:var(--pri-soft)}
+.mode.on b::after{content:" ✓";color:var(--pri)}
+.lvl{height:12px;border-radius:99px;background:var(--line);overflow:hidden;margin-top:10px}
+.lvl i{display:block;height:100%;width:0;background:var(--good);border-radius:99px;transition:width .06s}
+details.wl{border:2px solid var(--line);border-radius:14px;padding:0 12px;margin:0 0 10px}
+details.wl[open]{padding-bottom:10px}
+details.wl summary{cursor:pointer;padding:12px 0;min-height:48px;display:flex;flex-wrap:wrap;gap:2px 8px;align-items:center}
+.wrow{display:flex;align-items:center;gap:8px;border-top:1px solid var(--line);padding:4px 0}
+.wtog{flex:1;display:flex;align-items:center;gap:12px;min-height:48px;cursor:pointer;min-width:0}
+.wtog input{width:24px;height:24px;flex:none;margin:0}
+.wf{display:flex;flex-direction:column;min-width:0;overflow-wrap:anywhere}
+.wf small{color:var(--muted);font-size:.85rem}
+.wrow.off .wf{opacity:.5;text-decoration:line-through}
 .lists{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px}
 .lcard{position:relative;display:grid;grid-template-columns:auto 1fr;gap:2px 10px;align-items:center;border:2px solid var(--line);border-radius:14px;padding:12px;cursor:pointer;background:var(--card)}
 .lcard.on{border-color:var(--pri);background:var(--pri-soft)}
@@ -155,12 +167,12 @@ const MODES = [
   { id: 'write',  icon: '✍️', name: 'Schreiben', desc: 'Deutsch lesen, Wort tippen' },
   { id: 'listen', icon: '👂', name: 'Hören',     desc: 'Wort hören, Wort tippen' },
   { id: 'speak',  icon: '🎤', name: 'Sprechen',  desc: 'Vorsprechen, nachsprechen' },
-  { id: 'mix',    icon: '🎲', name: 'Gemischt',  desc: 'Alles ein bisschen' },
 ];
 
 /* ═════════════ Speicher ═════════════ */
 const LS_KEY = 'finny-vokabeltrainer-v1';
-const defaultDB = () => ({ settings: { rate: 0.9, sound: true, size: 10, voices: {}, enVariant: 'en-GB' }, custom: [], words: {}, days: {} });
+/* off: abgestellte Wörter { Wort-Schlüssel: 1 }. modes: gewählte Übungsarten. speakTol: 0 genau, 1 normal, 2 großzügig. meter: Lautstärke-Anzeige. */
+const defaultDB = () => ({ settings: { rate: 0.9, sound: true, size: 10, voices: {}, enVariant: 'en-GB', modes: null, speakTol: 1, meter: true }, custom: [], words: {}, days: {}, off: {} });
 function loadDB() {
   try {
     const raw = localStorage.getItem(LS_KEY);
@@ -214,10 +226,40 @@ function judge(ans, w) {
     return { r: 'near', hint: 'Ganz nah dran – ein Buchstabe stimmt nicht. Schau noch mal genau hin!' };
   return { r: 'wrong' };
 }
+/** Grober „Klang“ eines Wortes (nur Französisch): Wörter, die gleich klingen, bekommen denselben Schlüssel
+ *  (mer/mère/maire, vert/verre/vers, parler/parlé). Die Spracherkennung wählt bei Einzelwörtern oft die falsche Schreibweise. */
+const FR_SOUND = [[/ch/g, 'S'], [/ph/g, 'f'], [/qu?/g, 'k'], [/gn/g, 'N'], [/gu(?=[eiy])/g, 'g'], [/c(?=[eiy])/g, 's'], [/c/g, 'k'],
+  [/g(?=[eiy])/g, 'j'], [/eau|au/g, 'o'], [/ou/g, 'u'], [/oi/g, 'wa'], [/ai|ei/g, 'e'], [/h/g, ''], [/y/g, 'i'], [/(.)\1/g, '$1']];
+function soundKey(s, lang) {
+  if (lang !== 'fr') return s;
+  return s.replace(/'/g, '').split(' ').map(t => {
+    for (const [re, to] of FR_SOUND) t = t.replace(re, to);
+    if (t.length > 4) t = t.replace(/(?:ent|er|ez)$/, 'e');
+    if (t.length > 2) t = t.replace(/[sxz]$/, '');                     // Mehrzahl-s u. Ä.: stumm
+    if (t.length > 2) t = /e$/.test(t) ? t.slice(0, -1) : t.replace(/[tdp]$/, '');   // stummes -e (der Konsonant davor wird gesprochen) / stummes -t, -d, -p
+    return t;
+  }).join(' ');
+}
+/** Die Hörprobe (in Wörtern) ohne das gesuchte Wort – auch wenn es mehrfach vorkommt („chat chat“). Nichts gefunden → null. */
+function restWithout(na, nv) {
+  const t = na.split(' '), v = nv.split(' '), n = t.length;
+  for (let i = 0; i + v.length <= t.length;) { if (v.every((x, j) => t[i + j] === x)) t.splice(i, v.length); else i++; }
+  return t.length < n ? t : null;
+}
+/** Stimmt eine Hörprobe der Spracherkennung mit dem Wort überein? Streng (0): nur gleiche Schreibweise (Akzente und Artikel egal).
+ *  Normal (1): zusätzlich gleicher Klang und das Wort mit Füllwörtern davor/danach („euh, le chat“). Großzügig (2): zusätzlich ein Buchstabe daneben. */
 function speechMatch(alt, w) {
   let a = alt.trim(); if (/^\d+$/.test(a) && NUMW[w.lang][+a]) a = NUMW[w.lang][+a];
-  const la = loose(a);
-  return w.alts.some(v => { const lv = loose(v); return la === lv || noArt(la, w.lang) === noArt(lv, w.lang); });
+  const la = loose(a), na = noArt(la, w.lang), tol = DB.settings.speakTol;
+  return w.alts.some(v => {
+    const lv = loose(v), nv = noArt(lv, w.lang);
+    if (la === lv || na === nv) return true;
+    if (tol < 1 || !nv) return false;
+    const sa = soundKey(na, w.lang), sv = soundKey(nv, w.lang);
+    if (sa === sv) return true;
+    const rest = restWithout(na, nv); if (rest && rest.every(x => x.length <= 3)) return true;
+    return tol >= 2 && nv.length >= 4 && lev(sa, sv) <= 1;
+  });
 }
 function hintPattern(f) { return [...f].map((c, i) => i === 0 ? c : (/[\s'’\-.,!?…]/.test(c) ? (c === ' ' ? ' ' : c) : '_')).join(' '); }
 
@@ -248,20 +290,57 @@ function speak(text, lang, slow) {
   } catch (e) {}
 }
 /** Hört einmal zu. onSlow: der Browser wartet vermutlich auf die Mikrofon-Freigabe (nach 2,5 s ohne Start).
- *  Startet die Erkennung nicht innerhalb von 20 s, wird mit dem Fehler 'timeout' abgebrochen. */
-function listenOnce(lang, onResult, onError, onSlow) {
-  const r = new SR(); let done = false, started = false;
+ *  Startet die Erkennung nicht innerhalb von 20 s, wird mit dem Fehler 'timeout' abgebrochen.
+ *  opt.onLive: das Mikrofon nimmt jetzt wirklich auf (erst ab hier sprechen). opt.accept(alts): schon bei einem Zwischenergebnis
+ *  fertig werden, sobald es passt (schneller, und die endgültige Fassung der Erkennung ist oft schlechter als die erste). */
+function listenOnce(lang, onResult, onError, onSlow, opt = {}) {
+  const r = new SR(); let done = false, started = false, live = false; const seen = [];
   const slow = setTimeout(() => { if (!started && !done && onSlow) onSlow(); }, 2500);
   const giveUp = setTimeout(() => { if (!started && !done) { done = true; try { r.abort(); } catch (e) {} onError('timeout'); } }, 20000);
   const end = () => { done = true; clearTimeout(slow); clearTimeout(giveUp); };
-  r.lang = langCode(lang); r.interimResults = false; r.maxAlternatives = 5; r.continuous = false;
-  r.onstart = () => { started = true; clearTimeout(slow); clearTimeout(giveUp); };
-  r.onresult = e => { if (done) return; end(); onResult([...e.results[0]].map(x => x.transcript)); };
+  const goLive = () => { if (live || done) return; live = true; opt.onLive && opt.onLive(); };
+  r.lang = langCode(lang); r.interimResults = true; r.maxAlternatives = 10; r.continuous = false;
+  r.onstart = () => { started = true; clearTimeout(slow); clearTimeout(giveUp); setTimeout(goLive, 700); };
+  r.onaudiostart = goLive;
+  r.onresult = e => {
+    if (done) return;
+    const res = e.results[e.results.length - 1], alts = [...res].map(x => x.transcript);
+    if (!res.isFinal && !(opt.accept && opt.accept(alts))) { alts.forEach(a => seen.includes(a) || seen.push(a)); return; }
+    end(); if (!res.isFinal) try { r.abort(); } catch (err) {}
+    onResult(alts.concat(seen.filter(a => !alts.includes(a))));
+  };
   r.onerror = e => { if (done) return; end(); onError(e.error); };
   r.onend = () => { if (done) return; end(); onError('no-speech'); };
+  r.cancel = end;   // stoppt die Wächter-Zeiten, wenn von außen abgebrochen wird
   try { r.start(); } catch (e) { end(); onError('start'); }
   return r;
 }
+/** Pegelmesser: zeigt, ob das Mikrofon Finny überhaupt hört. Nur auf Laptop/PC – auf Handys stört ein zweiter Mikrofon-Zugriff
+ *  die Spracherkennung. Rohsignal (ohne Automatik), damit die Mikrofon-Lautstärke des Geräts nicht verstellt wird. */
+const IS_MOBILE = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const CAN_METER = !IS_MOBILE && !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia) && !!(window.AudioContext || window.webkitAudioContext);
+const QUIET = 0.35;   // Pegel 0…1 (≈ −45 dB): darunter war Finny zu leise
+let meterStop = null;
+function stopMeter() { if (meterStop) { meterStop(); meterStop = null; } }
+function startMeter(onLevel) {
+  stopMeter();
+  if (!CAN_METER || !DB.settings.meter) return;
+  let stopped = false, stream, ctx, timer;
+  meterStop = () => { stopped = true; clearInterval(timer); try { stream && stream.getTracks().forEach(t => t.stop()); } catch (e) {} try { ctx && ctx.close(); } catch (e) {} };
+  navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } }).then(s => {
+    if (stopped) { s.getTracks().forEach(t => t.stop()); return; }
+    stream = s; ctx = new (window.AudioContext || window.webkitAudioContext)(); ctx.resume && ctx.resume();
+    const an = ctx.createAnalyser(); an.fftSize = 1024; const buf = new Float32Array(an.fftSize);
+    ctx.createMediaStreamSource(s).connect(an);
+    timer = setInterval(() => {
+      an.getFloatTimeDomainData(buf); let sum = 0; for (const x of buf) sum += x * x;
+      onLevel(Math.max(0, Math.min(1, (20 * Math.log10(Math.sqrt(sum / buf.length) || 1e-6) + 60) / 45)));
+    }, 60);
+  }).catch(() => {});
+}
+const meterOn = () => CAN_METER && DB.settings.meter;
+const lvlHTML = id => meterOn() ? `<div class="lvl" aria-hidden="true"><i id="${id}"></i></div>` : '';
+const QUIET_HINT = 'Ich höre dich kaum – sprich lauter und näher am Mikrofon. Am Laptop sitzt das Mikrofon meist oberhalb des Bildschirms.';
 const PERMISSION_HINT = 'Der Browser fragt vielleicht gerade nach dem Mikrofon: Klicke oben neben der Adresszeile auf „Zulassen“.';
 const ASR_ERR = {
   'not-allowed': 'Das Mikrofon ist nicht erlaubt. Erlaube es in der Adressleiste / in den Browser-Einstellungen. Auf dem iPhone/iPad geht die Spracherkennung nur in Safari, nicht in Chrome oder DuckDuckGo.',
@@ -304,7 +383,7 @@ function record(w, res, kind) {
 }
 function buildQueue(listIds, size) {
   const map = new Map();
-  for (const l of allLists()) if (listIds.includes(l.id)) for (const w of wordsOfList(l)) map.set(w.key, w);
+  for (const l of allLists()) if (listIds.includes(l.id)) for (const w of wordsOfList(l)) if (!DB.off[w.key]) map.set(w.key, w);
   const today = dayNum();
   const arr = [...map.values()].map(w => { const p = DB.words[w.key]; return { w, box: p ? p.box : 0, due: p ? p.due : 0, j: Math.random() }; });
   const byPrio = (a, b) => a.box - b.box || a.j - b.j;
@@ -313,22 +392,25 @@ function buildQueue(listIds, size) {
 }
 
 /* ═════════════ Zustand ═════════════ */
-const S = { view: 'home', lang: 'fr', mode: 'mix', sel: {}, session: null, imp: { lang: 'fr', name: '', text: '', foreignFirst: true } };
+/** Gewählte Übungsarten (mehrere möglich). Beim ersten Mal: alles, was das Gerät kann. */
+const MODE_IDS = MODES.map(m => m.id);
+function initModes() {
+  const m = (DB.settings.modes || []).filter(x => MODE_IDS.includes(x));
+  return new Set(m.length ? m : (SR && HAS_TTS ? MODE_IDS : MODE_IDS.filter(x => x !== 'speak')));
+}
+const S = { view: 'home', lang: 'fr', modes: initModes(), open: new Set(), sel: {}, session: null, imp: { lang: 'fr', name: '', text: '', foreignFirst: true } };
 const cur = () => S.session && S.session.queue[S.session.idx];
 
-function pickKind() {
-  if (S.mode !== 'mix') return S.mode;
-  const r = Math.random();
-  return r < 0.5 ? 'write' : (r < 0.75 || !SR || !HAS_TTS) ? 'listen' : 'speak';
-}
-const mkItem = (w, repeat = false, kind = null) => ({ w, kind: kind || pickKind(), repeat, phase: 'ask', tries: 0, hint: 0, ans: '', msg: null, play: true, meaning: false, listening: false, res: null });
+const mkItem = (w, repeat, kind) => ({ w, kind, repeat, phase: 'ask', tries: 0, miss: 0, hint: 0, ans: '', msg: null, play: true, meaning: false, listening: false, res: null });
 
 function startSession() {
   const ids = [...(S.sel[S.lang] || [])];
   if (!ids.length) return toast('Wähle mindestens eine Liste aus.');
   const words = buildQueue(ids, DB.settings.size);
-  if (!words.length) return toast('In den gewählten Listen sind keine Wörter.');
-  S.session = { queue: words.map(w => mkItem(w)), idx: 0, res: { right: 0, assisted: 0, wrong: 0 }, missed: new Map(), requeued: new Set() };
+  if (!words.length) return toast('In den gewählten Listen gibt es keine aktiven Wörter (abgestellte Wörter zählen nicht).');
+  /* Reihum verteilen und mischen: so kommt jede gewählte Übungsart in der Runde wirklich vor. */
+  const modes = MODE_IDS.filter(id => S.modes.has(id)), kinds = shuffle(words.map((_, i) => modes[i % modes.length]));
+  S.session = { queue: words.map((w, i) => mkItem(w, false, kinds[i])), idx: 0, res: { right: 0, assisted: 0, wrong: 0 }, missed: new Map(), requeued: new Set() };
   S.view = 'practice'; render();
 }
 function finish(it, res) {
@@ -349,7 +431,12 @@ function next() {
   if (s.idx >= s.queue.length) S.view = 'summary';
   render();
 }
-function endSession() { if (HAS_TTS) speechSynthesis.cancel(); try { activeRec && activeRec.abort(); } catch (e) {} S.session = null; S.view = 'home'; render(); }
+/** Bricht ein laufendes Zuhören ab (ohne dass noch ein Ergebnis ankommt) und schaltet den Pegelmesser aus. */
+function stopListening() {
+  if (activeRec) { if (activeRec.cancel) activeRec.cancel(); activeRec.onresult =activeRec.onerror = activeRec.onend = activeRec.onaudiostart = activeRec.onstart = null; try { activeRec.abort(); } catch (e) {} activeRec = null; }
+  stopMeter();
+}
+function endSession() { if (HAS_TTS) speechSynthesis.cancel(); stopListening(); S.session = null; S.view = 'home'; render(); }
 let activeRec = null;
 
 /* ═════════════ Ansichten ═════════════ */
@@ -367,9 +454,12 @@ function render() {
 }
 
 function listProgress(l) {
-  const ws = wordsOfList(l); let m = 0;
-  for (const w of ws) { const p = DB.words[w.key]; if (p && p.box >= MASTERED) m++; }
-  return { n: ws.length, m };
+  let n = 0, m = 0, off = 0;   // abgestellte Wörter zählen nicht mit
+  for (const w of wordsOfList(l)) {
+    if (DB.off[w.key]) { off++; continue; }
+    n++; const p = DB.words[w.key]; if (p && p.box >= MASTERED) m++;
+  }
+  return { n, m, off };
 }
 function viewHome() {
   const L = LANGS[S.lang], lists = allLists().filter(l => l.lang === S.lang);
@@ -386,15 +476,16 @@ function viewHome() {
   ${banners}
   <div class="card">
     <h2>Wie möchtest du üben?</h2>
-    <div class="modes">${MODES.map(m => `<button class="mode ${S.mode === m.id ? 'on' : ''}" data-act="mode" data-v="${m.id}"><b>${m.icon} ${m.name}</b><span>${m.desc}</span></button>`).join('')}</div>
+    <p class="muted" style="margin-top:-.2em">Du kannst mehrere auswählen – dann wechseln sie sich ab.</p>
+    <div class="modes">${MODES.map(m => `<button class="mode ${S.modes.has(m.id) ? 'on' : ''}" data-act="mode" data-v="${m.id}" aria-pressed="${S.modes.has(m.id)}"><b>${m.icon} ${m.name}</b><span>${m.desc}</span></button>`).join('')}</div>
   </div>
   <div class="card">
     <h2>Welche Listen?</h2>
     ${lists.length ? `<div class="lists">${lists.map(l => { const p = listProgress(l), on = sel.has(l.id);
       return `<label class="lcard ${on ? 'on' : ''}"><input type="checkbox" data-act="toggleList" data-id="${esc(l.id)}" ${on ? 'checked' : ''}>
         <span class="emo">${l.emoji || '📝'}</span><span class="lname">${esc(l.name)}</span>
-        <span class="lmeta">${p.n} Wörter · ${p.m} gelernt</span><span class="bar"><i style="width:${p.n ? p.m / p.n * 100 : 0}%"></i></span></label>`; }).join('')}</div>
-      <div class="row" style="margin-top:10px"><button class="btn small ghost" data-act="selAll">Alle</button><button class="btn small ghost" data-act="selNone">Keine</button></div>`
+        <span class="lmeta">${p.n} Wörter · ${p.m} gelernt${p.off ? ` · ${p.off} abgestellt` : ''}</span><span class="bar"><i style="width:${p.n ? p.m / p.n * 100 : 0}%"></i></span></label>`; }).join('')}</div>
+      <div class="row" style="margin-top:10px"><button class="btn small ghost" data-act="selAll">Alle</button><button class="btn small ghost" data-act="selNone">Keine</button><button class="btn small ghost" data-act="nav" data-v="lists">📖 Wörter ansehen / abstellen</button></div>`
       : `<p class="muted">Für ${L.name} gibt es noch keine Liste. Unter „Listen“ kann man Vokabeln einfügen.</p>`}
   </div>
   <div class="card">
@@ -452,9 +543,11 @@ function viewPractice() {
     body = `<span class="chip">🎤 Sprechen</span>
       <div class="plabel">Höre zu und sprich nach:</div><div class="bigword">${esc(w.f)}</div><div class="tr">${esc(w.d)}</div>
       <div class="row center" style="margin-bottom:12px">${speakBtns(it)}</div>${msgHTML(it)}
-      ${SR && !S.srBlocked ? `<button class="btn primary big mic ${it.listening ? 'live' : ''}" data-act="mic" ${it.listening ? 'disabled' : ''}>${it.listening ? '🎙️ Ich höre zu …' : '🎤 Jetzt sprechen'}</button>
-              ${it.listening && it.slow ? `<div class="panel warn">⏳ ${PERMISSION_HINT}</div>` : ''}
-              <div class="row center" style="margin-top:10px">${it.listening ? '<button class="btn small ghost" data-act="micCancel">Abbrechen</button>' : ''}${(it.tries >= 1 || it.msg) && !it.listening ? '<button class="btn small ghost" data-act="skip">Überspringen</button>' : ''}</div>`
+      ${SR && !S.srBlocked ? `<button class="btn primary big mic ${it.listening === 'live' ? 'live' : ''}" data-act="mic" ${it.listening ? 'disabled' : ''}>${it.listening === 'live' ? '🎙️ Sprich jetzt!' : it.listening ? '⏳ Gleich geht’s los …' : '🎤 Jetzt sprechen'}</button>
+              ${it.listening === 'live' ? lvlHTML('lvl') : ''}
+              ${it.listening === 'live' && it.quiet ? `<div class="panel warn">🔈 ${QUIET_HINT}</div>` : ''}
+              ${it.listening && it.listening !== 'live' && it.slow ? `<div class="panel warn">⏳ ${PERMISSION_HINT}</div>` : ''}
+              <div class="row center" style="margin-top:10px">${it.listening ? '<button class="btn small ghost" data-act="micCancel">Abbrechen</button>' : ''}${(it.tries >= 1 || it.msg) && !it.listening ? '<button class="btn small ghost" data-act="skip">Überspringen</button>' : ''}${it.miss >= 2 && !it.listening ? '<button class="btn small" data-act="selfhelp">✅ Ich habe es richtig gesagt</button>' : ''}</div>`
           : `<p class="tr">${S.srBlocked ? 'Die Spracherkennung geht auf diesem Gerät gerade nicht – du kannst trotzdem üben. ' : ''}<b>Sprich das Wort laut nach.</b> Hat es geklappt?</p>
              <div class="row center"><button class="btn good big" data-act="selfok">✅ Ja</button><button class="btn big" data-act="selfno">🔁 Noch üben</button></div>
              ${S.srBlocked ? '<div class="row center" style="margin-top:8px"><button class="btn small ghost" data-act="retryMic">Spracherkennung nochmal versuchen</button></div>' : ''}`}`;
@@ -497,7 +590,7 @@ function viewStats() {
   for (const d of Object.values(DB.days)) { r += d.r; a += d.a; w += d.w; sr += d.sr; sn += d.sn; }
   const tot = r + a + w, today = DB.days[dayKey()] || { r: 0, a: 0, w: 0, sn: 0 };
   const lookup = lookupAll();
-  const tricky = Object.entries(DB.words).filter(([k, p]) => p.w > 0 && lookup.has(k)).sort((x, y) => (y[1].w - y[1].r * .5) - (x[1].w - x[1].r * .5)).slice(0, 8);
+  const tricky = Object.entries(DB.words).filter(([k, p]) => p.w > 0 && lookup.has(k) && !DB.off[k]).sort((x, y) => (y[1].w - y[1].r * .5) - (x[1].w - x[1].r * .5)).slice(0, 8);
   const rows = allLists().map(l => { const p = listProgress(l); let rr = 0, tt = 0;
     for (const x of wordsOfList(l)) { const q = DB.words[x.key]; if (q) { rr += q.r; tt += q.r + q.a + q.w; } }
     return `<tr><td>${LANGS[l.lang].flag} ${l.emoji || ''} ${esc(l.name)}</td><td>${p.m}/${p.n}</td><td>${tt ? Math.round(rr / tt * 100) + ' %' : '–'}</td></tr>`; }).join('');
@@ -541,9 +634,31 @@ function previewHTML() {
     ${rows.length ? `<table>${rows.slice(0, 5).map(r => `<tr><td><b>${esc(r[0])}</b></td><td>${esc(r[1])}</td></tr>`).join('')}</table>${rows.length > 5 ? `<p class="muted">… und ${rows.length - 5} weitere</p>` : ''}` : ''}
     ${bad.length ? `<details><summary>Nicht lesbare Zeilen</summary>${bad.slice(0, 10).map(b => `<div><code>${esc(b)}</code></div>`).join('')}</details>` : ''}`;
 }
+/* ── Wörter ansehen und abstellen ── */
+const countText = l => { const p = listProgress(l); return p.off ? `${p.n} von ${p.n + p.off} Wörtern werden geübt` : `${p.n} Wörter`; };
+function wordRowHTML(w) {
+  const p = DB.words[w.key], off = !!DB.off[w.key];
+  return `<div class="wrow ${off ? 'off' : ''}"><label class="wtog"><input type="checkbox" class="wchk" data-change="wordOn" data-key="${esc(w.key)}" ${off ? '' : 'checked'}>
+    <span class="wf"><b>${esc(w.f)}</b><small>${esc(w.d)}${p && p.box >= MASTERED ? ' · ✅ gelernt' : ''}</small></span></label>
+    ${HAS_TTS ? `<button type="button" class="btn small" data-act="sayw" data-lang="${w.lang}" data-text="${esc(w.f)}" aria-label="${esc(w.f)} anhören">🔊</button>` : ''}</div>`;
+}
+function wordListsHTML() {
+  return allLists().map(l => `<details class="wl" data-list="${esc(l.id)}" ${S.open.has(l.id) ? 'open' : ''}>
+    <summary><span style="font-size:1.4rem">${l.emoji || '📝'}</span><b>${LANGS[l.lang].flag} ${esc(l.name)}</b><span class="muted" data-cnt>${countText(l)}</span></summary>
+    <div class="row" style="margin-bottom:6px"><button class="btn small ghost" data-act="listWords" data-id="${esc(l.id)}" data-v="1">Alle an</button><button class="btn small ghost" data-act="listWords" data-id="${esc(l.id)}" data-v="0">Alle aus</button></div>
+    ${wordsOfList(l).map(wordRowHTML).join('')}</details>`).join('');
+}
+/** Nach dem Umschalten nur die betroffene Liste auffrischen (kein Neuzeichnen: Scrollposition und Tastaturfokus bleiben). */
+function syncWordList(det) {
+  det.querySelectorAll('.wchk').forEach(c => { const off = !!DB.off[c.dataset.key]; c.checked = !off; c.closest('.wrow').classList.toggle('off', off); });
+  const l = allLists().find(x => x.id === det.dataset.list); if (l) det.querySelector('[data-cnt]').textContent = countText(l);
+}
 function viewLists() {
   const im = S.imp;
-  return `<div class="card"><h2>Neue Vokabelliste einlesen</h2>
+  return `<div class="card"><h2>Wörter ansehen und abstellen</h2>
+    <p class="muted">Tippe eine Liste an, dann siehst du alle Wörter. <b>Mit Häkchen</b> wird das Wort geübt, <b>ohne Häkchen</b> ist es abgestellt und kommt nicht mehr dran (der bisherige Fortschritt bleibt erhalten).</p>
+    ${wordListsHTML()}</div>
+  <div class="card"><h2>Neue Vokabelliste einlesen</h2>
     <p class="muted">Pro Zeile ein Paar, getrennt mit <code>;</code>, Tab oder <code> - </code> – zum Beispiel <code>le chat;die Katze</code>. Mehrere richtige Schreibweisen mit <code>|</code>: <code>grey|gray;grau</code>.</p>
     <div class="fields">
       <label>Sprache<select class="field" data-change="impLang">${Object.entries(LANGS).map(([k, v]) => `<option value="${k}" ${im.lang === k ? 'selected' : ''}>${v.flag} ${v.name}</option>`).join('')}</select></label>
@@ -576,6 +691,9 @@ function viewSettings() {
     <label class="sw"><input type="checkbox" data-change="sound" ${st.sound ? 'checked' : ''}> Töne bei richtig / falsch</label>
     <p class="muted" style="font-size:.9rem">Fehlt eine Stimme? <b>Windows:</b> Einstellungen → Zeit &amp; Sprache → Sprache &amp; Region → Sprache hinzufügen (Französisch, mit Sprachausgabe); <b>Microsoft Edge</b> hat zusätzlich sehr gute Online-Stimmen („… Natural“). <b>iPad/iPhone:</b> Einstellungen → Bedienungshilfen → Gesprochene Inhalte → Stimmen. <b>Android:</b> Einstellungen → Sprachausgabe.</p>
     <p class="muted" style="font-size:.9rem">Spracherkennung (Finny spricht): ${SR ? '✅ verfügbar' : '❌ in diesem Browser nicht verfügbar (Chrome, Edge oder Safari nutzen)'}. Beim ersten Mal fragt der Browser nach dem Mikrofon – „Erlauben“ wählen.</p>
+    <div class="fields"><label>Wie genau soll ich beim Sprechen hinhören?<select class="field" data-change="speakTol">
+      ${[[0, 'Genau – das Wort muss genau so geschrieben erkannt werden'], [1, 'Normal – gleich klingende Wörter zählen auch'], [2, 'Großzügig – auch ein Buchstabe daneben ist okay']].map(([v, t]) => `<option value="${v}" ${st.speakTol === v ? 'selected' : ''}>${t}</option>`).join('')}</select></label></div>
+    ${CAN_METER ? `<label class="sw"><input type="checkbox" data-change="meter" ${st.meter ? 'checked' : ''}> Lautstärke-Anzeige beim Sprechen (zeigt, ob das Mikrofon Finny hört)</label>` : ''}
     <h3 style="margin-top:14px">🎤 Mikrofon-Test</h3>
     <p class="muted" style="font-size:.9rem">Drücke einen Knopf und sprich ein Wort. Der Test zeigt, was der Browser hört – und wo es hakt.</p>
     <div class="row"><button class="btn" data-act="micTest" data-lang="fr">🇫🇷 Test Französisch</button><button class="btn" data-act="micTest" data-lang="en">🇬🇧 Test Englisch</button></div>
@@ -596,9 +714,18 @@ function viewSettings() {
 
 /* ═════════════ Ereignisse ═════════════ */
 const ACT = {
-  nav: el => { if (HAS_TTS) speechSynthesis.cancel(); S.session = null; S.view = el.dataset.v; render(); },
+  nav: el => { if (HAS_TTS) speechSynthesis.cancel(); stopListening(); S.session = null; S.view = el.dataset.v; render(); },
   lang: el => { S.lang = el.dataset.v; render(); },
-  mode: el => { S.mode = el.dataset.v; render(); },
+  mode: el => {
+    const id = el.dataset.v;
+    if (S.modes.has(id)) { if (S.modes.size === 1) return toast('Mindestens eine Übungsart muss an bleiben.'); S.modes.delete(id); } else S.modes.add(id);
+    DB.settings.modes = MODE_IDS.filter(x => S.modes.has(x)); saveDB(); render();
+  },
+  listWords: el => {
+    const l = allLists().find(x => x.id === el.dataset.id); if (!l) return;
+    for (const w of wordsOfList(l)) el.dataset.v === '1' ? delete DB.off[w.key] : (DB.off[w.key] = 1);
+    saveDB(); syncWordList(el.closest('details'));
+  },
   toggleList: el => { const s = S.sel[S.lang]; el.checked ? s.add(el.dataset.id) : s.delete(el.dataset.id); render(); },
   selAll: () => { S.sel[S.lang] = new Set(allLists().filter(l => l.lang === S.lang).map(l => l.id)); render(); },
   selNone: () => { S.sel[S.lang] = new Set(); render(); },
@@ -615,24 +742,40 @@ const ACT = {
   mic: () => {
     const it = cur(); if (it.listening) return;
     if (HAS_TTS) speechSynthesis.cancel();
-    it.listening = true; it.slow = false; it.msg = null; render();
+    stopListening();
+    it.listening = 'starting'; it.slow = false; it.msg = null; it.quiet = false; it.metered = false; it.peak = 0; render();
+    const quiet = () => it.metered && it.peak < QUIET;   // Pegel wurde gemessen und war zu niedrig (ohne Messung: keine Aussage)
     activeRec = listenOnce(it.w.lang, alts => {
-      it.listening = false;
-      if (alts.some(x => speechMatch(x, it.w))) finish(it, it.tries === 0 ? 'right' : 'assisted');
-      else { it.tries++; it.msg = { t: 'bad', text: `Ich habe „${alts[0]}“ verstanden. Hör noch mal zu und versuch es nochmal!` }; sfx.bad(); render(); }
+      stopMeter(); it.listening = false; activeRec = null;
+      if (alts.some(x => speechMatch(x, it.w))) return finish(it, it.tries === 0 ? 'right' : 'assisted');
+      it.tries++; it.miss++;
+      it.msg = { t: 'bad', text: `${quiet() ? 'Ich habe dich nur ganz leise gehört. Sprich lauter! ' : ''}Ich habe „${alts[0]}“ verstanden. Hör noch mal zu und versuch es nochmal!` }; sfx.bad(); render();
     }, err => {
-      it.listening = false; it.slow = false;
+      stopMeter(); it.listening = false; it.slow = false; activeRec = null; it.miss++;
       if (err === 'service-not-allowed') S.srBlocked = true;   // Gerät erlaubt keine Spracherkennung: ab jetzt selbst bewerten
-      it.msg = { t: 'warn', text: (ASR_ERR[err] || 'Das hat nicht geklappt. Versuch es noch mal.') + ` (Code: ${err})` }; render(); },
-    () => { if (S.session && cur() === it && it.listening) { it.slow = true; render(); } });
+      const text = err === 'no-speech' && quiet() ? QUIET_HINT + ' Falls es immer so ist: In den Windows-Einstellungen unter System → Sound → Eingabe den Pegel höher stellen.' : (ASR_ERR[err] || 'Das hat nicht geklappt. Versuch es noch mal.');
+      it.msg = { t: 'warn', text: text + ` (Code: ${err})` }; render(); },
+    () => { if (S.session && cur() === it && it.listening) { it.slow = true; render(); } },
+    {
+      accept: alts => alts.some(x => speechMatch(x, it.w)),
+      onLive: () => {
+        if (!(S.session && cur() === it && it.listening)) return;
+        it.listening = 'live'; render();
+        const t0 = Date.now();
+        startMeter(l => {
+          it.metered = true; it.peak = Math.max(it.peak, l); const b = $('#lvl'); if (b) b.style.width = Math.round(l * 100) + '%';
+          if (!it.quiet && Date.now() - t0 > 3500 && it.peak < QUIET && it.listening === 'live') { it.quiet = true; render(); }
+        });
+      },
+    });
   },
   retryMic: () => { S.srBlocked = false; if (cur()) cur().msg = null; render(); },
   micCancel: () => {
     const it = cur(); if (!it) return;
-    if (activeRec) { activeRec.onresult = activeRec.onerror = activeRec.onend = null; try { activeRec.abort(); } catch (e) {} }
-    it.listening = false; it.slow = false; render();
+    stopListening(); it.listening = false; it.slow = false; render();
   },
   skip: () => { const it = cur(); finish(it, 'wrong'); },
+  selfhelp: () => finish(cur(), 'assisted'),   // nach zwei Fehlversuchen: Finny bewertet sich selbst
   selfok: () => finish(cur(), 'right'),
   selfno: () => finish(cur(), 'wrong'),
   impOrder: el => { S.imp.foreignFirst = el.dataset.v === '1'; render(); },
@@ -649,23 +792,24 @@ const ACT = {
     const out = $('#micTestOut'), l = el.dataset.lang;
     const ua = navigator.userAgent, browser = /Edg\//.test(ua) ? 'Edge' : /Firefox\//.test(ua) ? 'Firefox' : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : 'unbekannt';
     if (!SR) { out.innerHTML = `❌ ${browser}: Dieser Browser kann nicht zuhören. Bitte Edge, Chrome oder Safari nutzen.`; return; }
-    try { activeRec && activeRec.abort(); } catch (e) {}
+    stopListening();
     if (HAS_TTS) speechSynthesis.cancel();
-    const st = { start: 0, audio: 0, sound: 0, speech: 0 }; let heard = '', problem = '';
+    const st = { start: 0, audio: 0, sound: 0, speech: 0 }; let heard = '', problem = '', peak = 0, metered = false;
     const mark = b => b ? '✅' : '⬜';
+    const quietNote = () => metered && peak < QUIET ? `<p>🔈 ${QUIET_HINT} Falls es immer so ist: Windows → Einstellungen → System → Sound → Eingabe → Pegel höher stellen.</p>` : '';
     const show = () => { out.innerHTML = `<div class="muted" style="font-size:.85rem">Browser: ${browser} · Sprache: ${langCode(l)}</div>
       <div>${mark(st.start)} Erkennung gestartet</div><div>${mark(st.audio)} Mikrofon liefert Ton</div>
       <div>${mark(st.sound)} Geräusch erkannt</div><div>${mark(st.speech)} Sprache erkannt</div>
-      ${heard ? `<p>Gehört: <b>„${esc(heard)}“</b></p>` : ''}${problem ? `<p>${problem}</p>` : ''}`; };
+      ${lvlHTML('tlvl')}${heard ? `<p>Gehört: <b>„${esc(heard)}“</b></p>` : ''}${problem ? `<p>${problem}</p>` : ''}${quietNote()}`; };
     let r; try { r = new SR(); } catch (e) { out.textContent = '❌ Die Spracherkennung lässt sich nicht starten.'; return; }
     activeRec = r; r.lang = langCode(l); r.continuous = false; r.interimResults = true; r.maxAlternatives = 3;
     r.onstart = () => { st.start = 1; show(); };
-    r.onaudiostart = () => { st.audio = 1; show(); };
+    r.onaudiostart = () => { st.audio = 1; show(); startMeter(v => { metered = true; peak = Math.max(peak, v); const b = $('#tlvl'); if (b) b.style.width = Math.round(v * 100) + '%'; }); };
     r.onsoundstart = () => { st.sound = 1; show(); };
     r.onspeechstart = () => { st.speech = 1; show(); };
     r.onresult = e => { heard = [...e.results[e.results.length - 1]].map(x => x.transcript)[0]; show(); };
-    r.onerror = e => { problem = `❌ ${esc(ASR_ERR[e.error] || 'Das hat nicht geklappt.')} <span class="muted">(Code: ${esc(e.error)})</span>`; show(); };
-    r.onend = () => { if (!heard && !problem) problem = st.audio ? '⚠️ Beendet, ohne etwas zu verstehen. Sprich lauter und deutlicher, gleich nach dem Start.' : '⚠️ Das Mikrofon hat keinen Ton geliefert. Siehe „Hört nichts?“ unten.'; else if (heard) problem = '✅ Das Mikrofon funktioniert.'; show(); };
+    r.onerror = e => { stopMeter(); problem = `❌ ${esc(ASR_ERR[e.error] || 'Das hat nicht geklappt.')} <span class="muted">(Code: ${esc(e.error)})</span>`; show(); };
+    r.onend = () => { stopMeter(); if (!heard && !problem) problem = st.audio ? '⚠️ Beendet, ohne etwas zu verstehen. Sprich lauter und deutlicher, gleich nach dem Start.' : '⚠️ Das Mikrofon hat keinen Ton geliefert. Siehe „Hört nichts?“ unten.'; else if (heard) problem = '✅ Das Mikrofon funktioniert.'; show(); };
     setTimeout(() => { if (activeRec === r && !st.start && !problem) { problem = '⏳ ' + PERMISSION_HINT; show(); } }, 2500);
     setTimeout(() => { if (activeRec === r && !st.start) { r.onend = null; try { r.abort(); } catch (e) {} problem = '❌ ' + esc(ASR_ERR.timeout) + ' <span class="muted">(Code: timeout)</span>'; show(); } }, 20000);
     out.innerHTML = '🎙️ Sprich jetzt ein Wort …';
@@ -696,6 +840,9 @@ function submitAnswer() {
 const CHG = {
   size: el => { DB.settings.size = +el.value; saveDB(); },
   sound: el => { DB.settings.sound = el.checked; saveDB(); },
+  speakTol: el => { DB.settings.speakTol = +el.value; saveDB(); },
+  meter: el => { DB.settings.meter = el.checked; saveDB(); },
+  wordOn: el => { el.checked ? delete DB.off[el.dataset.key] : (DB.off[el.dataset.key] = 1); saveDB(); syncWordList(el.closest('details')); },
   enVariant: el => { DB.settings.enVariant = el.value; delete DB.settings.voices.en; saveDB(); render(); },
   voice: el => { DB.settings.voices[el.dataset.lang] = el.value; saveDB(); },
   impLang: el => { S.imp.lang = el.value; },
@@ -722,6 +869,9 @@ document.addEventListener('click', e => { const el = e.target.closest('[data-act
 document.addEventListener('submit', e => { const f = e.target.closest('[data-form]'); if (f) { e.preventDefault(); FORM[f.dataset.form](f); } });
 document.addEventListener('change', e => { const el = e.target.closest('[data-change]'); if (el) CHG[el.dataset.change](el); });
 document.addEventListener('input', e => { const el = e.target.closest('[data-input]'); if (el) INP[el.dataset.input](el); });
+document.addEventListener('toggle', e => {   // merkt sich, welche Wortlisten aufgeklappt sind (das Ereignis steigt nicht auf, daher Capture)
+  const d = e.target; if (d.matches && d.matches('details[data-list]')) d.open ? S.open.add(d.dataset.list) : S.open.delete(d.dataset.list);
+}, true);
 document.addEventListener('mousedown', e => { if (e.target.closest('.key')) e.preventDefault(); });
 document.addEventListener('keydown', e => {
   if (e.key !== 'Enter' || S.view !== 'practice' || e.target.closest('button,input,textarea,select')) return;
