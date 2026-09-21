@@ -17,4 +17,5 @@ window.VERBEN = [
   { id: 'aimer',    inf: 'aimer',    de: 'mögen, lieben' },
   { id: 'danser',   inf: 'danser',   de: 'tanzen' },
   { id: 'donner',   inf: 'donner',   de: 'geben' },
+  { id: 'detester', inf: 'détester', de: 'verabscheuen, überhaupt nicht mögen' },
 ];

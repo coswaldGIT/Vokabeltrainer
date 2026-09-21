@@ -180,7 +180,7 @@ const MODES = [
 /* ═════════════ Speicher ═════════════ */
 const LS_KEY = 'finny-vokabeltrainer-v1';
 /* off: abgestellte Wörter { Wort-Schlüssel: 1 }. modes: gewählte Übungsarten. speakTol: 0 genau, 1 normal, 2 großzügig. meter: Lautstärke-Anzeige. */
-const defaultDB = () => ({ settings: { rate: 0.9, sound: true, size: 10, voices: {}, enVariant: 'en-GB', modes: null, verbs: null, speakTol: 1, meter: true }, custom: [], words: {}, days: {}, off: {} });
+const defaultDB = () => ({ settings: { rate: 0.9, sound: true, size: 10, voices: {}, enVariant: 'en-GB', modes: null, verbsOff: [], speakTol: 1, meter: true }, custom: [], words: {}, days: {}, off: {} });
 function loadDB() {
   try {
     const raw = localStorage.getItem(LS_KEY);
@@ -450,7 +450,8 @@ function conjHint(w, level) {
   return `<div class="vhint">Stamm: <b>${esc(c.stem)}</b> + Endung${ends}</div>`;
 }
 const verbProgress = v => { let m = 0; for (let i = 0; i < 6; i++) { const p = DB.words[conjKey(v, i)]; if (p && p.box >= MASTERED) m++; } return m; };
-const initVerbs = () => new Set(Array.isArray(DB.settings.verbs) ? DB.settings.verbs.filter(id => verbList().some(v => v.id === id)) : verbList().map(v => v.id));
+/* Gespeichert werden die abgewählten Verben: neu hinzugefügte Verben sind dann automatisch an. */
+const initVerbs = () => new Set(verbList().map(v => v.id).filter(id => !(DB.settings.verbsOff || []).includes(id)));
 
 /* ═════════════ Zustand ═════════════ */
 /** Gewählte Übungsarten (mehrere möglich). Beim ersten Mal: alles, was das Gerät kann. */
@@ -459,7 +460,7 @@ function initModes() {
   const m = (DB.settings.modes || []).filter(x => MODE_IDS.includes(x));
   return new Set(m.length ? m : (SR && HAS_TTS ? MODE_IDS : MODE_IDS.filter(x => x !== 'speak')));
 }
-const saveVerbs = () => { DB.settings.verbs = [...S.verbs]; saveDB(); };
+const saveVerbs = () => { DB.settings.verbsOff = verbList().map(v => v.id).filter(id => !S.verbs.has(id)); saveDB(); };
 const S = { view: 'home', lang: 'fr', modes: initModes(), verbs: initVerbs(), open: new Set(), sel: {}, session: null, imp: { lang: 'fr', name: '', text: '', foreignFirst: true } };
 const cur = () => S.session && S.session.queue[S.session.idx];
 
