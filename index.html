@@ -404,19 +404,21 @@ function pickWords(words, size) {
 }
 
 /* ═════════════ Grammatik: Verben im Présent ═════════════ */
+/* k = Nummer der Verbform (je 0, tu 1, il/elle/on 2, nous 3, vous 4, ils/elles 5). Der Schlüssel des Fortschritts ist fr[0]. */
 const PERS = [
-  { fr: ['je'],           show: 'je',          de: 'ich' },
-  { fr: ['tu'],           show: 'tu',          de: 'du' },
-  { fr: ['il', 'elle'],   show: 'il / elle',   de: 'er / sie / es' },
-  { fr: ['nous'],         show: 'nous',        de: 'wir' },
-  { fr: ['vous'],         show: 'vous',        de: 'ihr / Sie' },
-  { fr: ['ils', 'elles'], show: 'ils / elles', de: 'sie (Mehrzahl)' },
+  { fr: ['je'],           show: 'je',          de: 'ich',                 k: 0 },
+  { fr: ['tu'],           show: 'tu',          de: 'du',                  k: 1 },
+  { fr: ['il', 'elle'],   show: 'il / elle',   de: 'er / sie / es',       k: 2 },
+  { fr: ['on'],           show: 'on',          de: 'man / wir (im Gespräch)', k: 2 },
+  { fr: ['nous'],         show: 'nous',        de: 'wir',                 k: 3 },
+  { fr: ['vous'],         show: 'vous',        de: 'ihr / Sie',           k: 4 },
+  { fr: ['ils', 'elles'], show: 'ils / elles', de: 'sie (Mehrzahl)',      k: 5 },
 ];
 const ER_END = ['e', 'es', 'e', 'ons', 'ez', 'ent'];   // Endungen der Verben auf -er
 const verbList = () => window.VERBEN || [];
 const conjKey = (v, i) => 'fr|v|' + v.id + '|' + PERS[i].fr[0];
 const vowelStart = s => /^[aeiouyhàâéèêëîïôûùœ]/i.test(s);
-/** Die sechs Formen eines Verbs: {stem, end} (regelmäßig auf -er) oder {whole} (von Hand eingetragen). */
+/** Die sechs Formen eines Verbs (je, tu, il/elle/on, nous, vous, ils/elles): {stem, end} (regelmäßig auf -er) oder {whole} (von Hand eingetragen). */
 function conjForms(v) {
   if (v.forms) return v.forms.map(whole => ({ whole }));
   const stem = v.inf.replace(/er$/, '');
@@ -424,7 +426,7 @@ function conjForms(v) {
 }
 /** „Wort“ für die Übung: Person i von Verb v. f = Lösung mit Pronomen, alts = auch ohne Pronomen und mit elle/elles richtig. */
 function conjWord(v, i) {
-  const f = conjForms(v)[i], form = f.whole || f.stem + f.end, pr = PERS[i];
+  const pr = PERS[i], f = conjForms(v)[pr.k], form = f.whole || f.stem + f.end;
   const lead = p => i === 0 ? (vowelStart(form) ? "j'" : 'je ') : p + ' ';
   const alts = [...pr.fr.map(p => lead(p) + form), form];
   return { lang: 'fr', f: alts[0], alts, d: `${v.inf} (${v.de}) – ${pr.show} (${pr.de})`, key: conjKey(v, i),
@@ -446,10 +448,10 @@ function judgeConj(ans, w) {
 function conjHint(w, level) {
   const c = w.conj;
   if (c.stem == null) return `<div class="hintline">${esc(hintPattern(c.form))}</div>`;
-  const ends = level >= 2 ? `<small>Endungen: ${ER_END.map((e, i) => `${esc(PERS[i].show)} <span class="vend">-${e}</span>`).join(' · ')}</small>` : '';
+  const ends = level >= 2 ? `<small>Endungen: ${PERS.map(P => `${esc(P.show)} <span class="vend">-${ER_END[P.k]}</span>`).join(' · ')}</small>` : '';
   return `<div class="vhint">Stamm: <b>${esc(c.stem)}</b> + Endung${ends}</div>`;
 }
-const verbProgress = v => { let m = 0; for (let i = 0; i < 6; i++) { const p = DB.words[conjKey(v, i)]; if (p && p.box >= MASTERED) m++; } return m; };
+const verbProgress = v => { let m = 0; for (let i = 0; i < PERS.length; i++) { const p = DB.words[conjKey(v, i)]; if (p && p.box >= MASTERED) m++; } return m; };
 /* Gespeichert werden die abgewählten Verben: neu hinzugefügte Verben sind dann automatisch an. */
 const initVerbs = () => new Set(verbList().map(v => v.id).filter(id => !(DB.settings.verbsOff || []).includes(id)));
 
@@ -579,7 +581,7 @@ function viewGrammar() {
     <p class="muted">Wähle die Verben, die du üben möchtest. Zu jedem Verb bekommst du eine Person, und du schreibst die richtige Form.</p>
     ${vs.length ? `<div class="lists">${vs.map(v => { const on = S.verbs.has(v.id), m = verbProgress(v);
       return `<label class="lcard ${on ? 'on' : ''}"><input type="checkbox" data-act="toggleVerb" data-id="${esc(v.id)}" ${on ? 'checked' : ''}>
-        <span class="emo">🧩</span><span class="lname">${esc(v.inf)}</span><span class="lmeta">${esc(v.de)} · ${m} von 6 Formen gelernt</span><span class="bar"><i style="width:${m / 6 * 100}%"></i></span></label>`; }).join('')}</div>
+        <span class="emo">🧩</span><span class="lname">${esc(v.inf)}</span><span class="lmeta">${esc(v.de)} · ${m} von ${PERS.length} Formen gelernt</span><span class="bar"><i style="width:${m / PERS.length * 100}%"></i></span></label>`; }).join('')}</div>
       <div class="row" style="margin-top:10px"><button class="btn small ghost" data-act="verbAll">Alle</button><button class="btn small ghost" data-act="verbNone">Keine</button></div>` : '<p class="muted">Es sind noch keine Verben eingetragen.</p>'}
     <div class="row" style="margin-top:14px">
       <label for="vsize" style="font-weight:600">Formen pro Runde</label>
@@ -590,7 +592,8 @@ function viewGrammar() {
     ${conjTableHTML({ ...sample, id: 'demo' })}
     <ul class="muted" style="padding-left:20px">
       <li>Vor <b>a, e, i, o, u</b> und stummem <b>h</b> wird aus <b>je</b> ein <b>j’</b>: <i>j’aime, j’habite, j’arrive</i>.</li>
-      <li>Zum Hören: <i>je, tu, il/elle</i> und <i>ils/elles</i> klingen gleich. Nur bei <i>nous</i> und <i>vous</i> hört man die Endung – die anderen musst du also <b>schreiben</b> können.</li>
+      <li><b>on</b> heißt „man“, im Gespräch aber oft auch „wir“ (<i>on habite</i> = wir wohnen). Das Verb hat dieselbe Form wie bei <i>il/elle</i>.</li>
+      <li>Zum Hören: <i>je, tu, il/elle/on</i> und <i>ils/elles</i> klingen gleich. Nur bei <i>nous</i> und <i>vous</i> hört man die Endung – die anderen musst du also <b>schreiben</b> können.</li>
       <li><b>être</b> (sein) ist unregelmäßig. Die Formen musst du auswendig lernen.</li></ul></div>
   <div class="card"><h2>Alle Verbformen ansehen</h2>
     ${vs.map(v => `<details class="wl" data-list="v-${esc(v.id)}" ${S.open.has('v-' + v.id) ? 'open' : ''}>
