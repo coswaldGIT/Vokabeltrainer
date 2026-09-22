@@ -389,6 +389,28 @@ function record(w, res, kind) {
   p.due = dayNum() + INTERVALS[p.box];
   saveDB();
 }
+/** Führt den Fortschritt aus einer geladenen Sicherung (imp) mit dem auf diesem Gerät (local) zusammen,
+ *  ohne etwas zu überschreiben: Wörter/Verbformen und Tage behalten je Feld den größeren Wert (Kästchen,
+ *  Fälligkeit, Zähler), abgestellte Wörter gelten, wenn sie in einer der beiden Dateien abgestellt waren,
+ *  eigene Listen werden nach id ergänzt. Grenze: Wurde dasselbe Wort unabhängig auf zwei Geräten geübt,
+ *  zählt je Feld nur der größere Wert, nicht die Summe beider Übungen. */
+function mergeProgress(local, imp) {
+  const words = { ...local.words };
+  for (const [k, p] of Object.entries(imp.words || {})) {
+    const q = words[k];
+    words[k] = !q ? p : { box: Math.max(q.box, p.box), due: Math.max(q.due, p.due), r: Math.max(q.r, p.r),
+      a: Math.max(q.a, p.a), w: Math.max(q.w, p.w), sr: Math.max(q.sr, p.sr), sn: Math.max(q.sn, p.sn) };
+  }
+  const days = { ...local.days };
+  for (const [k, d] of Object.entries(imp.days || {})) {
+    const e = days[k];
+    days[k] = !e ? d : { r: Math.max(e.r, d.r), a: Math.max(e.a, d.a), w: Math.max(e.w, d.w), sr: Math.max(e.sr, d.sr), sn: Math.max(e.sn, d.sn) };
+  }
+  const off = { ...local.off, ...(imp.off || {}) };
+  const custom = [...local.custom];
+  for (const l of imp.custom || []) if (!custom.some(x => x.id === l.id)) custom.push(l);
+  return { words, days, off, custom };
+}
 function buildQueue(listIds, size) {
   const map = new Map();
   for (const l of allLists()) if (listIds.includes(l.id)) for (const w of wordsOfList(l)) if (!DB.off[w.key]) map.set(w.key, w);
@@ -818,10 +840,12 @@ function viewSettings() {
         <li>Windows: Einstellungen → System → Sound → <b>Eingabe</b>: das richtige Mikrofon wählen, Pegel prüfen.</li>
       </ol></details></div>
   <div class="card"><h2>Sicherung</h2>
-    <p class="muted">Der Fortschritt liegt in diesem Browser auf diesem Gerät. Zum Umziehen auf ein anderes Gerät: hier speichern und dort laden.</p>
+    <p class="muted">Der Fortschritt liegt in diesem Browser auf diesem Gerät. Zum Umziehen auf ein anderes Gerät oder zum Abgleichen: hier speichern und dort laden.</p>
     <div class="row"><button class="btn" data-act="exportBackup">💾 Sicherung speichern</button>
-      <label class="btn" style="cursor:pointer">📥 Sicherung laden<input type="file" hidden accept=".json,application/json" data-change="importBackup"></label>
-      <button class="btn" data-act="resetProgress" style="color:var(--bad)">Fortschritt zurücksetzen</button></div></div>`;
+      <label class="btn primary" style="cursor:pointer">📥 Sicherung laden<input type="file" hidden accept=".json,application/json" data-change="importMerge"></label>
+      <button class="btn" data-act="resetProgress" style="color:var(--bad)">Fortschritt zurücksetzen</button></div>
+    <p class="muted" style="font-size:.9rem">„Sicherung laden“ <b>führt zusammen</b>: Der Fortschritt aus der Datei und der auf diesem Gerät bleiben beide erhalten, nichts wird überschrieben. Abgestellte Wörter gelten danach, wenn sie in einer der beiden Dateien abgestellt waren – ein Wort, das auf einem Gerät wieder angestellt wurde, danach also notfalls hier nochmal anstellen.
+      <label style="cursor:pointer;text-decoration:underline">Stattdessen alles auf diesem Gerät durch die Datei ersetzen<input type="file" hidden accept=".json,application/json" data-change="importReplace"></label></p></div>`;
 }
 
 /* ═════════════ Ereignisse ═════════════ */
@@ -968,14 +992,23 @@ const CHG = {
     try { text = new TextDecoder('utf-8', { fatal: true }).decode(buf); } catch (e) { text = new TextDecoder('windows-1252').decode(buf); }
     S.imp.text = text; if (!S.imp.name) S.imp.name = f.name.replace(/\.[^.]+$/, ''); render();
   },
-  importBackup: async el => {
-    const f = el.files[0]; if (!f) return;
-    try { const d = JSON.parse(await f.text()); if (!d || typeof d.words !== 'object' || typeof d.days !== 'object') throw 0;
-      if (!confirm('Die Sicherung ersetzt den Fortschritt auf diesem Gerät. Fortfahren?')) return;
-      const b = defaultDB(); DB = { ...b, ...d, settings: { ...b.settings, ...d.settings } }; saveDB(); render(); toast('Sicherung geladen.');
-    } catch (e) { toast('Diese Datei ist keine gültige Sicherung.'); }
+  importMerge: async el => {
+    const d = await parseBackupFile(el); if (!d) return;
+    const m = mergeProgress(DB, d); DB.words = m.words; DB.days = m.days; DB.off = m.off; DB.custom = m.custom;
+    saveDB(); render(); toast('Sicherung zusammengeführt – nichts wurde überschrieben.');
+  },
+  importReplace: async el => {
+    const d = await parseBackupFile(el); if (!d) return;
+    if (!confirm('Das ersetzt den ganzen Fortschritt auf diesem Gerät durch den Inhalt der Datei (nicht zusammengeführt). Fortfahren?')) return;
+    const b = defaultDB(); DB = { ...b, ...d, settings: { ...b.settings, ...d.settings } }; saveDB(); render(); toast('Sicherung geladen (ersetzt).');
   },
 };
+/** Liest und prüft eine Sicherungsdatei; gibt bei ungültigem Inhalt null zurück (und zeigt einen Hinweis). */
+async function parseBackupFile(el) {
+  const f = el.files[0]; el.value = ''; if (!f) return null;
+  try { const d = JSON.parse(await f.text()); if (!d || typeof d.words !== 'object' || typeof d.days !== 'object') throw 0; return d; }
+  catch (e) { toast('Diese Datei ist keine gültige Sicherung.'); return null; }
+}
 const INP = {
   impText: el => { S.imp.text = el.value; $('#impPreview').innerHTML = previewHTML(); },
   impName: el => { S.imp.name = el.value; },
