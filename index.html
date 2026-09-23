@@ -56,6 +56,8 @@ main{max-width:820px;margin:0 auto;padding:12px 16px 40px}
 .mode b{font-size:1.05rem}.mode span{font-size:.88rem;color:var(--muted)}
 .mode.on{border-color:var(--pri);background:var(--pri-soft)}
 .mode.on b::after{content:" ✓";color:var(--pri)}
+.mgl{font-weight:600;margin:14px 0 6px}
+.modes.dim{opacity:.45}
 .lvl{height:12px;border-radius:99px;background:var(--line);overflow:hidden;margin-top:10px}
 .lvl i{display:block;height:100%;width:0;background:var(--good);border-radius:99px;transition:width .06s}
 details.wl{border:2px solid var(--line);border-radius:14px;padding:0 12px;margin:0 0 10px}
@@ -171,11 +173,19 @@ const NUMW = {
   fr: ['zéro','un','deux','trois','quatre','cinq','six','sept','huit','neuf','dix','onze','douze','treize','quatorze','quinze','seize','dix-sept','dix-huit','dix-neuf','vingt'],
   en: ['zero','one','two','three','four','five','six','seven','eight','nine','ten','eleven','twelve','thirteen','fourteen','fifteen','sixteen','seventeen','eighteen','nineteen','twenty'],
 };
-const MODES = [
-  { id: 'write',  icon: '✍️', name: 'Schreiben', desc: 'Deutsch lesen, Wort tippen' },
-  { id: 'listen', icon: '👂', name: 'Hören',     desc: 'Wort hören, Wort tippen' },
-  { id: 'speak',  icon: '🎤', name: 'Sprechen',  desc: 'Vorsprechen, nachsprechen' },
-];
+/* Übungsarten: Richtung (df = Deutsch → Fremdsprache, fd = umgekehrt) × Antwort (type = tippen, voice = laut sagen), dazu Extras.
+   Daraus ergibt sich die Art je Wort (it.kind): write = Deutsch sehen, Fremdwort tippen; say = Deutsch sehen, Fremdwort sagen;
+   tode = Fremdwort sehen/hören, Deutsch tippen; sayde = Fremdwort sehen/hören, Deutsch laut sagen, aufdecken, selbst bewerten;
+   listen = Diktat; speak = Nachsprechen (zählt in der Aussprache-Statistik). */
+const DRILL = {
+  dir: [{ id: 'df', name: L => `Deutsch → ${L.name}`, desc: L => `Deutsch sehen, auf ${L.name} antworten` },
+        { id: 'fd', name: L => `${L.name} → Deutsch`, desc: () => 'Wort sehen und hören, auf Deutsch antworten' }],
+  ans: [{ id: 'type', name: () => 'Schreiben', icon: () => '✍️', desc: () => 'Antwort tippen' },
+        { id: 'voice', name: () => 'Sprechen', icon: () => '🎤', desc: () => 'Antwort laut sagen' }],
+  extra: [{ id: 'listen', name: () => 'Diktat', icon: () => '👂', desc: () => 'Wort hören, Wort tippen' },
+          { id: 'speak', name: () => 'Nachsprechen', icon: () => '🗣️', desc: () => 'Wort hören, Aussprache üben' }],
+};
+const KIND = { df: { type: 'write', voice: 'say' }, fd: { type: 'tode', voice: 'sayde' } };
 
 /* ═════════════ Speicher ═════════════ */
 const LS_KEY = 'finny-vokabeltrainer-v1';
@@ -233,6 +243,17 @@ function judge(ans, w) {
   if (w.alts.some(v => { const t = loose(v); return t.length >= 4 && lev(la, t) === 1; }))
     return { r: 'near', hint: 'Ganz nah dran – ein Buchstabe stimmt nicht. Schau noch mal genau hin!' };
   return { r: 'wrong' };
+}
+/** Prüfung der deutschen Antwort (Richtung Fremdsprache → Deutsch). Die Bedeutungen im Buch haben oft mehrere Teile
+ *  („ein Plakat, ein Poster“, „Hallo! / Grüß dich! (umgangssprachlich)“): Jeder Teil allein gilt, Klammern, Artikel, Umlaute,
+ *  Groß-/Kleinschreibung und ein Tippfehler sind egal. Passt nichts, entscheidet Finny selbst (andere Wörter können auch stimmen). */
+const DE_ART = /^(?:der|die|das|den|dem|des|ein|eine|einen|einem|einer|eines)\s+/;
+const deNorm = s => loose(s).replace(/'/g, '').replace(/\s+/g, ' ').trim().replace(DE_ART, '');
+const deParts = d => { const c = String(d).replace(/\([^)]*\)/g, ' '); return [...new Set([c, ...c.split(/[,;\/]|\s+oder\s+/)].map(deNorm).filter(Boolean))]; };
+function judgeDe(ans, w) {
+  const a = deNorm(ans); if (!a) return { r: 'empty' };
+  const ps = deParts(w.d);
+  return ps.some(p => p === a || (a.length >= 4 && p.length >= 4 && lev(a, p) <= 1)) ? { r: 'ok' } : { r: 'wrong' };
 }
 /** Grober „Klang“ eines Wortes (nur Französisch): Wörter, die gleich klingen, bekommen denselben Schlüssel
  *  (mer/mère/maire, vert/verre/vers, parler/parlé). Die Spracherkennung wählt bei Einzelwörtern oft die falsche Schreibweise. */
@@ -478,14 +499,20 @@ const verbProgress = v => { let m = 0; for (let i = 0; i < PERS.length; i++) { c
 const initVerbs = () => new Set(verbList().map(v => v.id).filter(id => !(DB.settings.verbsOff || []).includes(id)));
 
 /* ═════════════ Zustand ═════════════ */
-/** Gewählte Übungsarten (mehrere möglich). Beim ersten Mal: alles, was das Gerät kann. */
-const MODE_IDS = MODES.map(m => m.id);
-function initModes() {
-  const m = (DB.settings.modes || []).filter(x => MODE_IDS.includes(x));
-  return new Set(m.length ? m : (SR && HAS_TTS ? MODE_IDS : MODE_IDS.filter(x => x !== 'speak')));
+/** Gewählte Richtung/Antwort/Extras (je Gruppe mehrere möglich). Standard: beide Richtungen, tippen, und sprechen, wenn es vorher an war. */
+function initDrill() {
+  const d = DB.settings.drill || {}, pick = (g, def) => { const v = (d[g] || []).filter(x => DRILL[g].some(o => o.id === x)); return new Set(d[g] ? v : def); };
+  const old = DB.settings.modes || [];
+  const s = { dir: pick('dir', ['df', 'fd']), ans: pick('ans', old.includes('speak') ? ['type', 'voice'] : ['type']), extra: pick('extra', []) };
+  if (!s.dir.size) s.dir = new Set(['df', 'fd']);
+  if (!s.ans.size && !s.extra.size) s.ans.add('type');
+  return s;
 }
+/** Die Übungsarten, die aus der Auswahl entstehen (Reihenfolge fest, damit das Verteilen gleichmäßig ist). */
+const drillKinds = () => [...DRILL.dir.filter(o => S.drill.dir.has(o.id)).flatMap(o => DRILL.ans.filter(a => S.drill.ans.has(a.id)).map(a => KIND[o.id][a.id])),
+  ...DRILL.extra.filter(o => S.drill.extra.has(o.id)).map(o => o.id)];
 const saveVerbs = () => { DB.settings.verbsOff = verbList().map(v => v.id).filter(id => !S.verbs.has(id)); saveDB(); };
-const S = { view: 'home', lang: 'fr', modes: initModes(), verbs: initVerbs(), open: new Set(), sel: {}, session: null, imp: { lang: 'fr', name: '', text: '', foreignFirst: true } };
+const S = { view: 'home', lang: 'fr', drill: initDrill(), verbs: initVerbs(), open: new Set(), sel: {}, session: null, imp: { lang: 'fr', name: '', text: '', foreignFirst: true } };
 const cur = () => S.session && S.session.queue[S.session.idx];
 
 const mkItem = (w, repeat, kind) => ({ w, kind, repeat, phase: 'ask', tries: 0, miss: 0, hint: 0, ans: '', msg: null, play: true, meaning: false, listening: false, res: null });
@@ -496,7 +523,7 @@ function startSession() {
   const words = buildQueue(ids, DB.settings.size);
   if (!words.length) return toast('In den gewählten Listen gibt es keine aktiven Wörter (abgestellte Wörter zählen nicht).');
   /* Reihum verteilen und mischen: so kommt jede gewählte Übungsart in der Runde wirklich vor. */
-  const modes = MODE_IDS.filter(id => S.modes.has(id)), kinds = shuffle(words.map((_, i) => modes[i % modes.length]));
+  const modes = drillKinds(), kinds = shuffle(words.map((_, i) => modes[i % modes.length]));
   S.session = { queue: words.map((w, i) => mkItem(w, false, kinds[i])), idx: 0, res: { right: 0, assisted: 0, wrong: 0 }, missed: new Map(), requeued: new Set() };
   S.view = 'practice'; render();
 }
@@ -508,14 +535,18 @@ function startGrammar() {
   S.session = { queue: words.map(w => mkItem(w, false, 'conj')), idx: 0, res: { right: 0, assisted: 0, wrong: 0 }, missed: new Map(), requeued: new Set(), grammar: true };
   S.view = 'practice'; render();
 }
-function finish(it, res) {
+/** quick: die Lösung war schon zu sehen (Aufdecken, Selbstbewertung) – dann ohne Rückmeldungs-Ansicht zum nächsten Wort. */
+function finish(it, res, quick) {
   const s = S.session;
   if (!it.repeat) { record(it.w, res, it.kind); s.res[res]++; }
   it.res = res;
   if (res === 'wrong') {
     s.missed.set(it.w.key, it.w);
     if (!it.repeat && !s.requeued.has(it.w.key)) { s.requeued.add(it.w.key); s.queue.splice(Math.min(s.idx + 4, s.queue.length), 0, mkItem(it.w, true, it.kind)); }
-    it.phase = it.kind === 'speak' ? 'fb' : 'copy'; sfx.bad();
+  }
+  if (quick) { res === 'wrong' ? sfx.bad() : sfx.ok(); return next(); }
+  if (res === 'wrong') {
+    it.phase = it.kind === 'write' || it.kind === 'listen' ? 'copy' : 'fb'; sfx.bad();   // abschreiben nur, wenn das Fremdwort getippt wurde
   } else { it.phase = 'fb'; sfx.ok(); }
   if (it.kind !== 'speak' || res !== 'wrong') setTimeout(() => speak(it.w.f, it.w.lang), 350);
   render();
@@ -542,7 +573,7 @@ function render() {
   document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.v === S.view || (S.view === 'summary' && b.dataset.v === (S.session && S.session.grammar ? 'grammar' : 'home'))));
   if (S.view === 'practice') {
     const it = cur();
-    if (it.play) { it.play = false; if (it.kind === 'listen' || it.kind === 'speak') setTimeout(() => speak(it.w.f, it.w.lang), 200); }
+    if (it.play) { it.play = false; if (['listen', 'speak', 'tode', 'sayde'].includes(it.kind)) setTimeout(() => speak(it.w.f, it.w.lang), 200); }
     const inp = $('#answer'); if (inp) { inp.focus({ preventScroll: true }); inp.setSelectionRange(inp.value.length, inp.value.length); }
     const nb = $('#nextBtn'); if (nb) nb.focus({ preventScroll: true });
   }
@@ -571,8 +602,11 @@ function viewHome() {
   ${banners}
   <div class="card">
     <h2>Wie möchtest du üben?</h2>
-    <p class="muted" style="margin-top:-.2em">Du kannst mehrere auswählen – dann wechseln sie sich ab.</p>
-    <div class="modes">${MODES.map(m => `<button class="mode ${S.modes.has(m.id) ? 'on' : ''}" data-act="mode" data-v="${m.id}" aria-pressed="${S.modes.has(m.id)}"><b>${m.icon} ${m.name}</b><span>${m.desc}</span></button>`).join('')}</div>
+    <p class="muted" style="margin-top:-.2em">Du kannst in jeder Zeile mehrere auswählen – dann wechseln sie sich ab.</p>
+    ${[['dir', 'Richtung', 'Beide an = gemischt'], ['ans', 'Antworten', ''], ['extra', 'Extra', 'Aussprache und Hören, ohne Übersetzen']].map(([g, t, note]) => `
+    <div class="mgl">${t}${note ? ` <span class="muted">· ${note}</span>` : ''}</div>
+    <div class="modes ${g === 'dir' && !S.drill.ans.size ? 'dim' : ''}">${DRILL[g].map(o => { const on = S.drill[g].has(o.id);
+      return `<button class="mode ${on ? 'on' : ''}" data-act="drill" data-g="${g}" data-v="${o.id}" aria-pressed="${on}"><b>${g === 'dir' ? '' : o.icon(L) + ' '}${esc(o.name(L))}</b><span>${esc(o.desc(L))}</span></button>`; }).join('')}</div>`).join('')}
   </div>
   <div class="card">
     <h2>Welche Listen?</h2>
@@ -635,13 +669,19 @@ function answerForm(it, form, btn) {
   return `<form class="ans" data-form="${form}"><input id="answer" class="answer" type="text" inputmode="text" enterkeyhint="go" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" lang="${it.w.lang}" aria-label="Antwort" value="${esc(it.ans || '')}"><button class="btn primary" type="submit">${btn}</button></form>${keysHTML(it.w, it.phase === 'copy')}`;
 }
 
+/** Mikrofon-Knopf mit Pegel, Hinweisen und Abbrechen/Überspringen/Selbsthilfe (Nachsprechen und Deutsch → Fremdsprache sprechen). */
+const micHTML = it => `<button class="btn primary big mic ${it.listening === 'live' ? 'live' : ''}" data-act="mic" ${it.listening ? 'disabled' : ''}>${it.listening === 'live' ? '🎙️ Sprich jetzt!' : it.listening ? '⏳ Gleich geht’s los …' : '🎤 Jetzt sprechen'}</button>
+              ${it.listening === 'live' ? lvlHTML('lvl') : ''}
+              ${it.listening === 'live' && it.quiet ? `<div class="panel warn">🔈 ${QUIET_HINT}</div>` : ''}
+              ${it.listening && it.listening !== 'live' && it.slow ? `<div class="panel warn">⏳ ${PERMISSION_HINT}</div>` : ''}
+              <div class="row center" style="margin-top:10px">${it.listening ? '<button class="btn small ghost" data-act="micCancel">Abbrechen</button>' : ''}${(it.tries >= 1 || it.msg) && !it.listening ? '<button class="btn small ghost" data-act="skip">Überspringen</button>' : ''}${it.miss >= 2 && !it.listening ? '<button class="btn small" data-act="selfhelp">✅ Ich habe es richtig gesagt</button>' : ''}</div>`;
 function viewPractice() {
   const s = S.session, it = cur(), L = LANGS[it.w.lang], w = it.w;
   const also = w.alts.length > 1 && !w.conj ? `<div class="muted">Auch richtig: ${esc(w.alts.slice(1).join(', '))}</div>` : '';
   let body = '';
   if (it.phase === 'fb') {
-    const good = it.res === 'right';
-    body = `<div class="panel good"><b>${good ? 'Richtig! 🎉' : 'Geschafft – gut gemacht! 👍'}</b>
+    const good = it.res === 'right', bad = it.res === 'wrong';
+    body = `<div class="panel ${bad ? 'bad' : 'good'}"><b>${good ? 'Richtig! 🎉' : bad ? 'Das üben wir gleich nochmal. So heißt es:' : 'Geschafft – gut gemacht! 👍'}</b>
       <div class="solution">${solHTML(w)}</div><div>${esc(w.d)}</div>${also}
       <div class="row center" style="margin-top:8px">${speakBtns(it)}</div></div>
       <button id="nextBtn" class="btn primary big" style="width:100%" data-act="next">Weiter ➜</button>`;
@@ -651,6 +691,41 @@ function viewPractice() {
       <div class="row center" style="margin-top:8px">${speakBtns(it)}</div></div>
       <p><b>Schreibe das Wort zur Übung einmal ab:</b></p>${msgHTML(it)}${answerForm(it, 'copy', 'OK')}
       ${it.copyFails >= 2 ? '<div class="row center"><button type="button" class="btn ghost" data-act="next">Trotzdem weiter ➜</button></div>' : ''}`;
+  } else if (it.phase === 'check') {   /* Richtung → Deutsch: Antwort passt nicht zur Lösung, Finny entscheidet */
+    body = `<div class="panel warn"><b>Das steht so nicht in meiner Lösung.</b>
+      <div class="solution">${solHTML(w)}</div><div>heißt: <b>${esc(w.d)}</b></div>
+      <div style="margin-top:6px">Deine Antwort: <b>${esc(it.ans)}</b></div></div>
+      <p>Meint deine Antwort dasselbe?</p>
+      <div class="row center"><button class="btn good big" data-act="deSame">✅ Ja, das meine ich</button><button class="btn big" data-act="selfnoQ">🔁 Nein, nochmal üben</button></div>`;
+  } else if (it.phase === 'reveal') {   /* aufgedeckt: selbst bewerten */
+    const toDe = it.kind === 'sayde';
+    body = `<span class="chip">🎤 Sprechen</span>
+      <div class="plabel">${toDe ? 'Das heißt:' : 'So heißt es:'}</div>
+      <div class="bigword" style="margin-bottom:0">${toDe ? esc(w.d) : solHTML(w)}</div><div class="tr">${toDe ? solHTML(w) : esc(w.d)}</div>
+      <div class="row center" style="margin-bottom:12px">${speakBtns(it)}</div>
+      <p class="tr"><b>Hattest du es richtig gesagt?</b></p>
+      <div class="row center"><button class="btn good big" data-act="selfokQ">✅ Ja</button><button class="btn big" data-act="selfnoQ">🔁 Noch üben</button></div>`;
+  } else if (it.kind === 'tode') {
+    body = `<span class="chip">✍️ ${L.flag} → 🇩🇪</span>
+      <div class="plabel">Was heißt das auf Deutsch?</div><div class="bigword">${solHTML(w)}</div>
+      <div class="row center" style="margin-bottom:12px">${speakBtns(it)}</div>
+      ${msgHTML(it)}<form class="ans" data-form="answer"><input id="answer" class="answer" type="text" enterkeyhint="go" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" lang="de" aria-label="Antwort auf Deutsch" value="${esc(it.ans || '')}"><button class="btn primary" type="submit">Prüfen</button></form>
+      <div class="row center"><button type="button" class="btn small ghost" data-act="skip">🤷 Weiß ich nicht</button></div>`;
+  } else if (it.kind === 'sayde') {
+    body = `<span class="chip">🎤 ${L.flag} → 🇩🇪</span>
+      <div class="plabel">Was heißt das auf Deutsch? <b>Sag es laut!</b></div><div class="bigword">${solHTML(w)}</div>
+      <div class="row center" style="margin-bottom:12px">${speakBtns(it)}</div>
+      <button class="btn primary big" style="width:100%" data-act="reveal">👀 Auflösen</button>`;
+  } else if (it.kind === 'say') {
+    const auto = SR && !S.srBlocked;
+    body = `<span class="chip">🎤 🇩🇪 → ${L.flag}</span>
+      <div class="plabel">Wie heißt das auf ${L.name}? <b>Sag es laut!</b></div><div class="bigword">${esc(w.d)}</div>
+      ${it.hint ? `<div class="hintline" aria-label="Tipp">${esc(hintPattern(w.f))}</div>` : ''}
+      ${msgHTML(it)}
+      ${auto ? micHTML(it) : `<p class="tr">${S.srBlocked ? 'Die Spracherkennung geht auf diesem Gerät gerade nicht – sag es laut und decke dann auf. ' : 'Sag es laut und decke dann auf.'}</p>
+        <button class="btn primary big" style="width:100%" data-act="reveal">👀 Auflösen</button>
+        ${S.srBlocked ? '<div class="row center" style="margin-top:8px"><button class="btn small ghost" data-act="retryMic">Spracherkennung nochmal versuchen</button></div>' : ''}`}
+      ${it.listening ? '' : `<div class="row center" style="margin-top:8px"><button type="button" class="btn small ghost" data-act="hint">💡 ${it.hint ? (HAS_TTS && it.hint < 2 ? 'Noch ein Tipp: vorsprechen' : 'Nochmal anhören') : 'Tipp: erster Buchstabe'}</button>${auto && !it.tries && !it.msg ? '<button type="button" class="btn small ghost" data-act="skip">🤷 Weiß ich nicht</button>' : ''}</div>`}`;
   } else if (it.kind === 'conj') {
     const c = w.conj, P = PERS[c.i];
     body = `<span class="chip">🧩 Verb im Présent</span>
@@ -677,11 +752,7 @@ function viewPractice() {
     body = `<span class="chip">🎤 Sprechen</span>
       <div class="plabel">Höre zu und sprich nach:</div><div class="bigword">${esc(w.f)}</div><div class="tr">${esc(w.d)}</div>
       <div class="row center" style="margin-bottom:12px">${speakBtns(it)}</div>${msgHTML(it)}
-      ${SR && !S.srBlocked ? `<button class="btn primary big mic ${it.listening === 'live' ? 'live' : ''}" data-act="mic" ${it.listening ? 'disabled' : ''}>${it.listening === 'live' ? '🎙️ Sprich jetzt!' : it.listening ? '⏳ Gleich geht’s los …' : '🎤 Jetzt sprechen'}</button>
-              ${it.listening === 'live' ? lvlHTML('lvl') : ''}
-              ${it.listening === 'live' && it.quiet ? `<div class="panel warn">🔈 ${QUIET_HINT}</div>` : ''}
-              ${it.listening && it.listening !== 'live' && it.slow ? `<div class="panel warn">⏳ ${PERMISSION_HINT}</div>` : ''}
-              <div class="row center" style="margin-top:10px">${it.listening ? '<button class="btn small ghost" data-act="micCancel">Abbrechen</button>' : ''}${(it.tries >= 1 || it.msg) && !it.listening ? '<button class="btn small ghost" data-act="skip">Überspringen</button>' : ''}${it.miss >= 2 && !it.listening ? '<button class="btn small" data-act="selfhelp">✅ Ich habe es richtig gesagt</button>' : ''}</div>`
+      ${SR && !S.srBlocked ? micHTML(it)
           : `<p class="tr">${S.srBlocked ? 'Die Spracherkennung geht auf diesem Gerät gerade nicht – du kannst trotzdem üben. ' : ''}<b>Sprich das Wort laut nach.</b> Hat es geklappt?</p>
              <div class="row center"><button class="btn good big" data-act="selfok">✅ Ja</button><button class="btn big" data-act="selfno">🔁 Noch üben</button></div>
              ${S.srBlocked ? '<div class="row center" style="margin-top:8px"><button class="btn small ghost" data-act="retryMic">Spracherkennung nochmal versuchen</button></div>' : ''}`}`;
@@ -852,10 +923,14 @@ function viewSettings() {
 const ACT = {
   nav: el => { if (HAS_TTS) speechSynthesis.cancel(); stopListening(); S.session = null; S.view = el.dataset.v; render(); },
   lang: el => { S.lang = el.dataset.v; render(); },
-  mode: el => {
-    const id = el.dataset.v;
-    if (S.modes.has(id)) { if (S.modes.size === 1) return toast('Mindestens eine Übungsart muss an bleiben.'); S.modes.delete(id); } else S.modes.add(id);
-    DB.settings.modes = MODE_IDS.filter(x => S.modes.has(x)); saveDB(); render();
+  drill: el => {
+    const g = el.dataset.g, id = el.dataset.v, set = S.drill[g];
+    if (set.has(id)) {
+      if (g === 'dir' && set.size === 1) return toast('Mindestens eine Richtung muss an bleiben.');
+      set.delete(id);
+      if (!S.drill.ans.size && !S.drill.extra.size) { set.add(id); return toast('Mindestens eine Übungsart muss an bleiben.'); }
+    } else set.add(id);
+    DB.settings.drill = Object.fromEntries(Object.keys(DRILL).map(k => [k, DRILL[k].map(o => o.id).filter(x => S.drill[k].has(x))])); saveDB(); render();
   },
   listWords: el => {
     const l = allLists().find(x => x.id === el.dataset.id); if (!l) return;
@@ -887,7 +962,7 @@ const ACT = {
     const quiet = () => it.metered && it.peak < QUIET;   // Pegel wurde gemessen und war zu niedrig (ohne Messung: keine Aussage)
     activeRec = listenOnce(it.w.lang, alts => {
       stopMeter(); it.listening = false; activeRec = null;
-      if (alts.some(x => speechMatch(x, it.w))) return finish(it, it.tries === 0 ? 'right' : 'assisted');
+      if (alts.some(x => speechMatch(x, it.w))) return finish(it, it.tries === 0 && !it.hint ? 'right' : 'assisted');
       it.tries++; it.miss++;
       it.msg = { t: 'bad', text: `${quiet() ? 'Ich habe dich nur ganz leise gehört. Sprich lauter! ' : ''}Ich habe „${alts[0]}“ verstanden. Hör noch mal zu und versuch es nochmal!` }; sfx.bad(); render();
     }, err => {
@@ -918,6 +993,10 @@ const ACT = {
   selfhelp: () => finish(cur(), 'assisted'),   // nach zwei Fehlversuchen: Finny bewertet sich selbst
   selfok: () => finish(cur(), 'right'),
   selfno: () => finish(cur(), 'wrong'),
+  reveal: () => { const it = cur(); stopListening(); it.listening = false; it.phase = 'reveal'; render(); if (it.kind === 'say') speak(it.w.f, it.w.lang); },
+  selfokQ: () => { const it = cur(); finish(it, it.hint || it.tries ? 'assisted' : 'right', true); },   // aufgedeckt: Lösung war schon zu sehen
+  selfnoQ: () => finish(cur(), 'wrong', true),
+  deSame: () => finish(cur(), 'assisted', true),   // deutsche Antwort passte nicht zur Lösung, meint aber dasselbe
   impOrder: el => { S.imp.foreignFirst = el.dataset.v === '1'; render(); },
   saveImport: () => {
     const im = S.imp, { rows } = parseVocab(im.text, im.foreignFirst);
@@ -965,9 +1044,11 @@ const FORM = {
   answer: () => submitAnswer(), copy: () => submitAnswer(),
 };
 function submitAnswer() {
-  const it = cur(), val = ($('#answer') || {}).value || '', j = it.w.conj ? judgeConj(val, it.w) : judge(val, it.w);
+  const it = cur(), val = ($('#answer') || {}).value || '', toDe = it.kind === 'tode' && it.phase === 'ask';
+  const j = it.w.conj ? judgeConj(val, it.w) : toDe ? judgeDe(val, it.w) : judge(val, it.w);
   if (j.r === 'empty') return;
   it.ans = val;
+  if (toDe) { if (j.r === 'ok') return finish(it, 'right'); it.phase = 'check'; sfx.near(); return render(); }
   if (it.phase === 'copy') {
     if (j.r === 'ok') { sfx.ok(); it.ans = ''; return next(); }
     it.copyFails = (it.copyFails || 0) + 1;
