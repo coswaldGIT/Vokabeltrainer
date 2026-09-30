@@ -244,6 +244,7 @@ function lev(a, b) {
 function judge(ans, w) {
   const a = base(ans); if (!a) return { r: 'empty' };
   if (w.alts.some(v => a === base(v))) return { r: 'ok' };
+  if (w.lang === 'en' && w.alts.some(v => a === 'to ' + base(v))) return { r: 'ok' };   // Verben: „to go“ ist auch richtig
   const la = loose(ans);
   if (w.alts.some(v => la === loose(v))) return { r: 'near', hint: 'Fast richtig! Achte auf die Akzente und Sonderzeichen.' };
   for (const v of w.alts) {
@@ -259,7 +260,9 @@ function judge(ans, w) {
  *  Groß-/Kleinschreibung und ein Tippfehler sind egal. Passt nichts, entscheidet Finny selbst (andere Wörter können auch stimmen). */
 const DE_ART = /^(?:der|die|das|den|dem|des|ein|eine|einen|einem|einer|eines)\s+/;
 const deNorm = s => loose(s).replace(/'/g, '').replace(/\s+/g, ' ').trim().replace(DE_ART, '');
-const deParts = d => { const c = String(d).replace(/\([^)]*\)/g, ' '); return [...new Set([c, ...c.split(/[,;\/]|\s+oder\s+/)].map(deNorm).filter(Boolean))]; };
+/* Klammern gelten mit und ohne Inhalt: „(sich) verstecken“ → „verstecken“ und „sich verstecken“, „(zer)brechen“ → „brechen“ und „zerbrechen“. */
+const deParts = d => [...new Set([String(d).replace(/\([^)]*\)/g, ' '), String(d).replace(/\(([^)]*)\)/g, '$1')]
+  .flatMap(c => [c, ...c.split(/[,;\/]|\s+oder\s+/)]).map(deNorm).filter(Boolean))];
 function judgeDe(ans, w) {
   const a = deNorm(ans); if (!a) return { r: 'empty' };
   const ps = deParts(w.d);

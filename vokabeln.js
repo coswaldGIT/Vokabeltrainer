@@ -234,6 +234,33 @@ window.VOKABELN = [
   ]},
 
   /* ───────────────────────── ENGLISCH ───────────────────────── */
+  /* Buch Seite 206/207 „Irregular verbs“: nur Infinitiv und Bedeutung. Die Formen (went, gone …) übt man unter „Grammatik“. */
+  { id: 'en-irregular', lang: 'en', emoji: '🔤', name: 'Irregular verbs (Buch S. 206/207)', words: [
+    ['be', 'sein'], ['beat', 'schlagen; besiegen'], ['become', 'werden'], ['begin', 'beginnen; anfangen'],
+    ['bet', 'wetten'], ['bite', 'beißen'], ['break', '(zer)brechen; kaputt machen'], ['bring', '(mit)bringen'],
+    ['build', 'bauen'], ['burn', '(ver)brennen'], ['buy', 'kaufen'], ['catch', 'fangen'], ['choose', '(aus)wählen'],
+    ['come', 'kommen'], ['cost', 'kosten'], ['cut', 'schneiden'],
+    ['deal (with)|deal', 'sich befassen (mit); umgehen (mit)'], ['do', 'machen; tun'], ['draw', 'zeichnen; ziehen'],
+    ['dream', 'träumen'], ['drink', 'trinken'], ['drive', 'fahren'], ['eat', 'essen'], ['fall', '(hin)fallen'],
+    ['feed', 'füttern; ernähren'], ['feel', 'fühlen'], ['fight', 'kämpfen; (sich) streiten'], ['find', 'finden'],
+    ['fit', 'passen'], ['fly', 'fliegen'], ['forget', 'vergessen'], ['forgive', 'vergeben; verzeihen'],
+    ['freeze', 'gefrieren; erstarren'], ['get', 'bekommen; erhalten'], ['give', 'geben'], ['go', 'gehen; fahren'],
+    ['grow', 'wachsen; anbauen; züchten'], ['hang', 'hängen'], ['have', 'haben'], ['hear', 'hören'],
+    ['hide', '(sich) verstecken'], ['hit', 'schlagen; treffen'], ['hold', '(fest)halten'],
+    ['hurt', 'verletzen; sich wehtun'], ['keep', '(auf)bewahren; behalten'], ['know', 'kennen; wissen'],
+    ['lead', '(an)führen'], ['learn', 'lernen'], ['leave', '(ver)lassen'], ['let', 'lassen'], ['lie', 'liegen'],
+    ['lose', 'verlieren'], ['make', 'machen; tun'], ['mean', 'bedeuten; meinen'], ['meet', 'treffen'],
+    ['pay', '(be)zahlen'], ['put', 'legen; setzen; stellen'], ['read', 'lesen'], ['ride', 'fahren; reiten'],
+    ['ring', 'klingeln; läuten'], ['run', 'laufen; rennen'], ['say', 'sagen'], ['see', 'sehen'],
+    ['sell', 'verkaufen'], ['send', 'senden; verschicken'], ['set up', 'erbauen; errichten'], ['shoot', 'schießen'],
+    ['show', 'zeigen'], ['sing', 'singen'], ['sink', 'untergehen; sinken'], ['sit', 'sitzen'], ['sleep', 'schlafen'],
+    ['smell', 'riechen; duften'], ['speak', 'sprechen'], ['spell', 'buchstabieren'],
+    ['spend', 'ausgeben; verbringen'], ['stand', 'stehen'], ['steal', 'stehlen'], ['swim', 'schwimmen'],
+    ['take', 'nehmen'], ['teach', 'unterrichten; lehren; beibringen'], ['tell', 'erzählen'],
+    ['think', '(nach)denken; glauben'], ['throw', 'werfen'], ['understand', 'verstehen'],
+    ['wake up', '(auf)wachen; (auf)wecken'], ['wear', 'anhaben; tragen'], ['win', 'gewinnen; siegen'],
+    ['write', 'schreiben'],
+  ]},
   { id: 'en-greetings', lang: 'en', emoji: '👋', name: 'Greetings', words: [
     ['hello', 'Hallo'], ['hi', 'Hi / Hallo'], ['good morning', 'Guten Morgen'], ['good afternoon', 'Guten Tag (nachmittags)'],
     ['good evening', 'Guten Abend'], ['good night', 'Gute Nacht'], ['goodbye', 'Auf Wiedersehen'], ['see you', 'Bis später'],
