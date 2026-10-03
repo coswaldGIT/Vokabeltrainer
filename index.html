@@ -412,17 +412,23 @@ const INTERVALS = [0, 1, 2, 4, 8, 16];   // Tage bis zur nächsten Wiederholung 
 const MASTERED = 3;
 function record(w, res, kind) {
   const p = DB.words[w.key] || (DB.words[w.key] = { box: 0, due: 0, r: 0, a: 0, w: 0, sr: 0, sn: 0 });
-  const dk = dayKey(), d = DB.days[dk] || (DB.days[dk] = { r: 0, a: 0, w: 0, sr: 0, sn: 0 });
+  const dk = dayKey(), dt = DB.days[dk] || (DB.days[dk] = { r: 0, a: 0, w: 0, sr: 0, sn: 0 });
+  const dl = (dt.l || (dt.l = {}))[w.lang] || (dt.l[w.lang] = { r: 0, a: 0, w: 0, sr: 0, sn: 0 });
+  const inc = f => { dt[f]++; dl[f]++; };   // Gesamtzahl des Tages und die der Sprache
   if (kind === 'speak') {
-    p.sn++; d.sn++;
-    if (res !== 'wrong') { p.sr++; d.sr++; }
+    p.sn++; inc('sn');
+    if (res !== 'wrong') { p.sr++; inc('sr'); }
     if (res === 'right') p.box = Math.min(5, p.box + 1);
-  } else if (res === 'right') { p.r++; d.r++; p.box = Math.min(5, p.box + 1); }
-  else if (res === 'assisted') { p.a++; d.a++; }
-  else { p.w++; d.w++; p.box = 0; }
+  } else if (res === 'right') { p.r++; inc('r'); p.box = Math.min(5, p.box + 1); }
+  else if (res === 'assisted') { p.a++; inc('a'); }
+  else { p.w++; inc('w'); p.box = 0; }
   p.due = dayNum() + INTERVALS[p.box];
   saveDB();
 }
+/** Zähler eines Tages für eine Sprache. Tage von vor dem 03.10.2026 haben keine Aufteilung (d.l fehlt):
+ *  damals wurde praktisch nur Französisch geübt, sie zählen darum ganz zu Französisch. */
+const DAY0 = { r: 0, a: 0, w: 0, sr: 0, sn: 0 };
+function dayOf(d, lang) { if (!d) return DAY0; if (d.l) return d.l[lang] || DAY0; return lang === 'fr' ? d : DAY0; }
 /** Führt den Fortschritt aus einer geladenen Sicherung (imp) mit dem auf diesem Gerät (local) zusammen,
  *  ohne etwas zu überschreiben: Wörter/Verbformen und Tage behalten je Feld den größeren Wert (Kästchen,
  *  Fälligkeit, Zähler), abgestellte Wörter gelten, wenn sie in einer der beiden Dateien abgestellt waren,
@@ -436,9 +442,13 @@ function mergeProgress(local, imp) {
       a: Math.max(q.a, p.a), w: Math.max(q.w, p.w), sr: Math.max(q.sr, p.sr), sn: Math.max(q.sn, p.sn) };
   }
   const days = { ...local.days };
+  const maxDay = (e, d) => ({ r: Math.max(e.r, d.r), a: Math.max(e.a, d.a), w: Math.max(e.w, d.w), sr: Math.max(e.sr, d.sr), sn: Math.max(e.sn, d.sn) });
   for (const [k, d] of Object.entries(imp.days || {})) {
     const e = days[k];
-    days[k] = !e ? d : { r: Math.max(e.r, d.r), a: Math.max(e.a, d.a), w: Math.max(e.w, d.w), sr: Math.max(e.sr, d.sr), sn: Math.max(e.sn, d.sn) };
+    if (!e) { days[k] = d; continue; }
+    const m = maxDay(e, d);
+    if (e.l || d.l) { m.l = {}; for (const lg of Object.keys(LANGS)) m.l[lg] = maxDay(dayOf(e, lg), dayOf(d, lg)); }
+    days[k] = m;
   }
   const off = { ...local.off, ...(imp.off || {}) };
   const custom = [...local.custom];
@@ -558,7 +568,7 @@ function initDrill() {
 const drillKinds = () => [...DRILL.dir.filter(o => S.drill.dir.has(o.id)).flatMap(o => DRILL.ans.filter(a => S.drill.ans.has(a.id)).map(a => KIND[o.id][a.id])),
   ...DRILL.extra.filter(o => S.drill.extra.has(o.id)).map(o => o.id)];
 const saveVerbs = () => { DB.settings.verbsOff = verbList().map(v => v.id).filter(id => !S.verbs.has(id)); saveDB(); };
-const S = { view: 'home', lang: 'fr', drill: initDrill(), verbs: initVerbs(), irr: initIrr(), open: new Set(), sel: {}, session: null, imp: { lang: 'fr', name: '', text: '', foreignFirst: true } };
+const S = { view: 'home', lang: LANGS[DB.settings.lang] ? DB.settings.lang : 'fr', drill: initDrill(), verbs: initVerbs(), irr: initIrr(), open: new Set(), sel: {}, session: null, imp: { lang: null, name: '', text: '', foreignFirst: true } };
 const cur = () => S.session && S.session.queue[S.session.idx];
 
 const mkItem = (w, repeat, kind) => ({ w, kind, repeat, phase: 'ask', tries: 0, miss: 0, hint: 0, ans: '', msg: null, play: true, meaning: false, listening: false, res: null });
@@ -642,10 +652,7 @@ function viewHome() {
   if (!HAS_TTS) banners += `<div class="banner">🔇 Dieser Browser kann nicht vorsprechen. Bitte Chrome, Edge oder Safari verwenden.</div>`;
   if (!SR) banners += `<div class="banner">🎤 In diesem Browser kann die App nicht zuhören. „Sprechen“ funktioniert trotzdem: Finny spricht laut und bewertet sich selbst. Mit Chrome oder Edge klappt die automatische Bewertung.</div>`;
   return `
-  <div class="card">
-    <div class="seg" role="group" aria-label="Sprache">${Object.entries(LANGS).map(([k, v]) =>
-      `<button class="btn ${S.lang === k ? 'on' : ''}" data-act="lang" data-v="${k}">${v.flag} ${v.name}</button>`).join('')}</div>
-  </div>
+  ${langSeg()}
   ${banners}
   <div class="card">
     <h2>Wie möchtest du üben?</h2>
@@ -866,14 +873,14 @@ function viewSummary() {
 }
 
 function streak() {
-  const has = d => { const v = DB.days[dayKey(d)]; return v && (v.r + v.a + v.w + v.sn) > 0; };
+  const has = d => { const v = dayOf(DB.days[dayKey(d)], S.lang); return (v.r + v.a + v.w + v.sn) > 0; };
   const d = new Date(); let n = 0; if (!has(d)) d.setDate(d.getDate() - 1);
   while (has(d)) { n++; d.setDate(d.getDate() - 1); }
   return n;
 }
 function chartHTML() {
   const days = [];
-  for (let i = 13; i >= 0; i--) { const d = new Date(); d.setDate(d.getDate() - i); days.push({ wd: ['So','Mo','Di','Mi','Do','Fr','Sa'][d.getDay()], dd: d.getDate(), ...{ r: 0, a: 0, w: 0, ...(DB.days[dayKey(d)] || {}) } }); }
+  for (let i = 13; i >= 0; i--) { const d = new Date(); d.setDate(d.getDate() - i); days.push({ wd: ['So','Mo','Di','Mi','Do','Fr','Sa'][d.getDay()], dd: d.getDate(), ...dayOf(DB.days[dayKey(d)], S.lang) }); }
   const max = Math.max(5, ...days.map(x => x.r + x.a + x.w)), h = v => v / max * 100;
   return `<div class="chart" role="img" aria-label="Geübte Wörter der letzten 14 Tage">${days.map(x => { const t = x.r + x.a + x.w;
     return `<div class="col" title="${x.dd}.: ${x.r} richtig, ${x.a} mit Hilfe, ${x.w} falsch"><span class="tot">${t || ''}</span><div class="stack"><i class="w" style="height:${h(x.w)}%"></i><i class="a" style="height:${h(x.a)}%"></i><i class="r" style="height:${h(x.r)}%"></i></div><span class="lab">${x.wd}</span></div>`; }).join('')}</div>
@@ -881,21 +888,21 @@ function chartHTML() {
 }
 function viewStats() {
   let r = 0, a = 0, w = 0, sr = 0, sn = 0;
-  for (const d of Object.values(DB.days)) { r += d.r; a += d.a; w += d.w; sr += d.sr; sn += d.sn; }
-  const tot = r + a + w, today = DB.days[dayKey()] || { r: 0, a: 0, w: 0, sn: 0 };
+  for (const x of Object.values(DB.days)) { const d = dayOf(x, S.lang); r += d.r; a += d.a; w += d.w; sr += d.sr; sn += d.sn; }
+  const tot = r + a + w, today = dayOf(DB.days[dayKey()], S.lang);
   const lookup = lookupAll();
-  const tricky = Object.entries(DB.words).filter(([k, p]) => p.w > 0 && lookup.has(k) && !DB.off[k]).sort((x, y) => (y[1].w - y[1].r * .5) - (x[1].w - x[1].r * .5)).slice(0, 8);
-  const rows = allLists().map(l => { const p = listProgress(l); let rr = 0, tt = 0;
+  const tricky = Object.entries(DB.words).filter(([k, p]) => p.w > 0 && lookup.has(k) && lookup.get(k).lang === S.lang && !DB.off[k]).sort((x, y) => (y[1].w - y[1].r * .5) - (x[1].w - x[1].r * .5)).slice(0, 8);
+  const rows = allLists().filter(l => l.lang === S.lang).map(l => { const p = listProgress(l); let rr = 0, tt = 0;
     for (const x of wordsOfList(l)) { const q = DB.words[x.key]; if (q) { rr += q.r; tt += q.r + q.a + q.w; } }
-    return `<tr><td>${LANGS[l.lang].flag} ${l.emoji || ''} ${esc(l.name)}</td><td>${p.m}/${p.n}</td><td>${tt ? Math.round(rr / tt * 100) + ' %' : '–'}</td></tr>`; }).join('');
-  return `<div class="tiles">
+    return `<tr><td>${l.emoji || ''} ${esc(l.name)}</td><td>${p.m}/${p.n}</td><td>${tt ? Math.round(rr / tt * 100) + ' %' : '–'}</td></tr>`; }).join('');
+  return `${langSeg()}<div class="tiles">
       <div class="tile"><b>${today.r + today.a + today.w + today.sn}</b><span>Wörter heute</span></div>
       <div class="tile"><b>${streak()} 🔥</b><span>Tage in Folge</span></div>
       <div class="tile"><b>${tot ? Math.round(r / tot * 100) + ' %' : '–'}</b><span>gleich richtig (Schreiben/Hören)</span></div>
       <div class="tile"><b>${sn ? Math.round(sr / sn * 100) + ' %' : '–'}</b><span>Aussprache geklappt (${sn} Versuche)</span></div>
     </div>
     <div class="card"><h2>Die letzten 14 Tage</h2>${chartHTML()}</div>
-    <div class="card"><h2>Listen</h2><table><tr><th>Liste</th><th>Gelernt</th><th>Treffer</th></tr>${rows}</table>
+    <div class="card"><h2>Listen</h2>${rows ? `<table><tr><th>Liste</th><th>Gelernt</th><th>Treffer</th></tr>${rows}</table>` : `<p class="muted">Für ${LANGS[S.lang].name} gibt es noch keine Liste.</p>`}
       <p class="muted" style="font-size:.85rem">„Gelernt“ = ein Wort wurde mehrmals an verschiedenen Tagen richtig geschrieben.</p></div>
     <div class="card"><h2>Knifflige Wörter</h2>${tricky.length ? `<table>${tricky.map(([k, p]) => { const x = lookup.get(k);
       return `<tr><td><b>${esc(x.f)}</b></td><td>${esc(x.d)}</td><td>${p.w}× falsch</td><td style="text-align:right">${HAS_TTS ? `<button class="btn small" data-act="sayw" data-lang="${x.lang}" data-text="${esc(x.f)}" aria-label="Anhören">🔊</button>` : ''}</td></tr>`; }).join('')}</table>` : '<p class="muted">Noch keine Fehler – oder noch nicht geübt. 🙂</p>'}</div>`;
@@ -937,8 +944,8 @@ function wordRowHTML(w) {
     ${HAS_TTS ? `<button type="button" class="btn small" data-act="sayw" data-lang="${w.lang}" data-text="${esc(w.f)}" aria-label="${esc(w.f)} anhören">🔊</button>` : ''}</div>`;
 }
 function wordListsHTML() {
-  return allLists().map(l => `<details class="wl" data-list="${esc(l.id)}" ${S.open.has(l.id) ? 'open' : ''}>
-    <summary><span style="font-size:1.4rem">${l.emoji || '📝'}</span><b>${LANGS[l.lang].flag} ${esc(l.name)}</b><span class="muted" data-cnt>${countText(l)}</span></summary>
+  return allLists().filter(l => l.lang === S.lang).map(l => `<details class="wl" data-list="${esc(l.id)}" ${S.open.has(l.id) ? 'open' : ''}>
+    <summary><span style="font-size:1.4rem">${l.emoji || '📝'}</span><b>${esc(l.name)}</b><span class="muted" data-cnt>${countText(l)}</span></summary>
     <div class="row" style="margin-bottom:6px"><button class="btn small ghost" data-act="listWords" data-id="${esc(l.id)}" data-v="1">Alle an</button><button class="btn small ghost" data-act="listWords" data-id="${esc(l.id)}" data-v="0">Alle aus</button></div>
     ${wordsOfList(l).map(wordRowHTML).join('')}</details>`).join('');
 }
@@ -948,8 +955,9 @@ function syncWordList(det) {
   const l = allLists().find(x => x.id === det.dataset.list); if (l) det.querySelector('[data-cnt]').textContent = countText(l);
 }
 function viewLists() {
-  const im = S.imp;
-  return `<div class="card"><h2>Wörter ansehen und abstellen</h2>
+  const im = S.imp; im.lang = S.lang;   // neue Liste gehört zur gewählten Sprache
+  const own = DB.custom.filter(l => l.lang === S.lang);
+  return `${langSeg()}<div class="card"><h2>Wörter ansehen und abstellen</h2>
     <p class="muted">Tippe eine Liste an, dann siehst du alle Wörter. <b>Mit Häkchen</b> wird das Wort geübt, <b>ohne Häkchen</b> ist es abgestellt und kommt nicht mehr dran (der bisherige Fortschritt bleibt erhalten).</p>
     ${wordListsHTML()}</div>
   <div class="card"><h2>Neue Vokabelliste einlesen</h2>
@@ -966,8 +974,8 @@ function viewLists() {
     <div id="impPreview">${previewHTML()}</div>
     <button class="btn primary big" style="width:100%;margin-top:10px" data-act="saveImport">✔ Liste speichern</button></div>
   <div class="card"><h2>Meine eigenen Listen</h2>
-    ${DB.custom.length ? `<table>${DB.custom.map(l => `<tr><td>${LANGS[l.lang].flag} ${esc(l.name)}</td><td>${l.words.length} Wörter</td><td style="text-align:right"><button class="btn small" data-act="delCustom" data-id="${esc(l.id)}">🗑 Löschen</button></td></tr>`).join('')}</table>`
-      : '<p class="muted">Noch keine. Die eingebauten Listen sind unter „Üben“ zu finden.</p>'}
+    ${own.length ? `<table>${own.map(l => `<tr><td>${esc(l.name)}</td><td>${l.words.length} Wörter</td><td style="text-align:right"><button class="btn small" data-act="delCustom" data-id="${esc(l.id)}">🗑 Löschen</button></td></tr>`).join('')}</table>`
+      : `<p class="muted">Noch keine für ${LANGS[S.lang].name}. Die eingebauten Listen sind unter „Üben“ zu finden.</p>`}
     <p class="muted" style="font-size:.9rem">Eigene Listen gelten nur auf diesem Gerät. Damit alle Geräte dieselben Listen haben, werden sie in die Datei <code>vokabeln.js</code> eingetragen.</p></div>`;
 }
 
@@ -1011,7 +1019,7 @@ function viewSettings() {
 /* ═════════════ Ereignisse ═════════════ */
 const ACT = {
   nav: el => { if (HAS_TTS) speechSynthesis.cancel(); stopListening(); S.session = null; S.view = el.dataset.v; render(); },
-  lang: el => { S.lang = el.dataset.v; render(); },
+  lang: el => { S.lang = DB.settings.lang = el.dataset.v; saveDB(); render(); },
   drill: el => {
     const g = el.dataset.g, id = el.dataset.v, set = S.drill[g];
     if (set.has(id)) {
@@ -1099,7 +1107,7 @@ const ACT = {
     if (!rows.length) return toast('Keine Vokabeln erkannt – bitte Text einfügen.');
     const l = { id: 'c' + Date.now(), lang: im.lang, emoji: '📝', name: im.name.trim() || 'Meine Liste', words: rows };
     DB.custom.push(l); saveDB(); (S.sel[im.lang] || (S.sel[im.lang] = new Set())).add(l.id);
-    S.lang = im.lang; S.imp = { ...im, name: '', text: '' }; S.view = 'home'; render(); toast(`„${l.name}“ gespeichert (${rows.length} Wörter).`);
+    S.lang = DB.settings.lang = im.lang; saveDB(); S.imp = { ...im, name: '', text: '' }; S.view = 'home'; render(); toast(`„${l.name}“ gespeichert (${rows.length} Wörter).`);
   },
   delCustom: el => { const l = DB.custom.find(x => x.id === el.dataset.id); if (l && confirm(`Liste „${l.name}“ wirklich löschen?`)) { DB.custom = DB.custom.filter(x => x !== l); saveDB(); render(); } },
   testVoice: el => speak(LANGS[el.dataset.lang].sample, el.dataset.lang),
@@ -1182,7 +1190,7 @@ const CHG = {
   wordOn: el => { el.checked ? delete DB.off[el.dataset.key] : (DB.off[el.dataset.key] = 1); saveDB(); syncWordList(el.closest('details')); },
   enVariant: el => { DB.settings.enVariant = el.value; delete DB.settings.voices.en; saveDB(); render(); },
   voice: el => { DB.settings.voices[el.dataset.lang] = el.value; saveDB(); },
-  impLang: el => { S.imp.lang = el.value; },
+  impLang: el => { S.lang = DB.settings.lang = S.imp.lang = el.value; saveDB(); render(); },
   impFile: async el => {
     const f = el.files[0]; if (!f) return;
     const buf = await f.arrayBuffer(); let text;
