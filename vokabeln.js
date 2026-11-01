@@ -404,37 +404,37 @@ window.VOKABELN = [
   { id: 'en-u2-st2', lang: 'en', emoji: '🌉', name: 'Unit 2 – Station 2 (S. 227)', words: [
     ['high', 'hoch; groß'], ['beautiful', 'schön; hübsch; wunderbar'],
   ]},
-  { id: 'en-greetings', lang: 'en', emoji: '👋', name: 'Greetings', words: [
+  { id: 'en-greetings', lang: 'en', basic: true, emoji: '👋', name: 'Greetings', words: [
     ['hello', 'Hallo'], ['hi', 'Hi / Hallo'], ['good morning', 'Guten Morgen'], ['good afternoon', 'Guten Tag (nachmittags)'],
     ['good evening', 'Guten Abend'], ['good night', 'Gute Nacht'], ['goodbye', 'Auf Wiedersehen'], ['see you', 'Bis später'],
     ['thank you', 'Danke'], ['please', 'Bitte'], ['sorry', 'Entschuldigung'], ['yes', 'ja'], ['no', 'nein'],
     ['how are you', 'Wie geht es dir?'], ['I\'m fine', 'Mir geht es gut'], ['my name is', 'Ich heiße'],
   ]},
-  { id: 'en-numbers', lang: 'en', emoji: '🔢', name: 'Numbers 0–10', words: [
+  { id: 'en-numbers', lang: 'en', basic: true, emoji: '🔢', name: 'Numbers 0–10', words: [
     ['zero', 'null'], ['one', 'eins'], ['two', 'zwei'], ['three', 'drei'], ['four', 'vier'], ['five', 'fünf'],
     ['six', 'sechs'], ['seven', 'sieben'], ['eight', 'acht'], ['nine', 'neun'], ['ten', 'zehn'],
   ]},
-  { id: 'en-colours', lang: 'en', emoji: '🎨', name: 'Colours', words: [
+  { id: 'en-colours', lang: 'en', basic: true, emoji: '🎨', name: 'Colours', words: [
     ['red', 'rot'], ['blue', 'blau'], ['green', 'grün'], ['yellow', 'gelb'], ['black', 'schwarz'], ['white', 'weiß'],
     ['orange', 'orange'], ['pink', 'rosa'], ['grey|gray', 'grau'], ['brown', 'braun'], ['purple', 'lila'],
   ]},
-  { id: 'en-animals', lang: 'en', emoji: '🐾', name: 'Animals', words: [
+  { id: 'en-animals', lang: 'en', basic: true, emoji: '🐾', name: 'Animals', words: [
     ['cat', 'die Katze'], ['dog', 'der Hund'], ['bird', 'der Vogel'], ['fish', 'der Fisch'], ['horse', 'das Pferd'],
     ['cow', 'die Kuh'], ['rabbit', 'das Kaninchen'], ['mouse', 'die Maus'], ['pig', 'das Schwein'],
     ['elephant', 'der Elefant'], ['lion', 'der Löwe'], ['frog', 'der Frosch'],
   ]},
-  { id: 'en-family', lang: 'en', emoji: '👨‍👩‍👧', name: 'Family & Friends', words: [
+  { id: 'en-family', lang: 'en', basic: true, emoji: '👨‍👩‍👧', name: 'Family & Friends', words: [
     ['family', 'die Familie'], ['mother', 'die Mutter'], ['father', 'der Vater'], ['brother', 'der Bruder'],
     ['sister', 'die Schwester'], ['grandmother', 'die Großmutter'], ['grandfather', 'der Großvater'],
     ['child', 'das Kind'], ['baby', 'das Baby'], ['friend', 'der Freund / die Freundin'], ['parents', 'die Eltern'],
   ]},
-  { id: 'en-school', lang: 'en', emoji: '🎒', name: 'School', words: [
+  { id: 'en-school', lang: 'en', basic: true, emoji: '🎒', name: 'School', words: [
     ['school', 'die Schule'], ['class', 'die Klasse'], ['teacher', 'der Lehrer'], ['book', 'das Buch'],
     ['exercise book', 'das Heft'], ['pen', 'der Kugelschreiber'], ['pencil', 'der Bleistift'],
     ['pencil case', 'das Mäppchen'], ['school bag', 'der Schulranzen'], ['table', 'der Tisch'],
     ['chair', 'der Stuhl'], ['bag', 'die Tasche'],
   ]},
-  { id: 'en-food', lang: 'en', emoji: '🍎', name: 'Food & Drink', words: [
+  { id: 'en-food', lang: 'en', basic: true, emoji: '🍎', name: 'Food & Drink', words: [
     ['bread', 'das Brot'], ['cheese', 'der Käse'], ['milk', 'die Milch'], ['water', 'das Wasser'],
     ['apple', 'der Apfel'], ['banana', 'die Banane'], ['cake', 'der Kuchen'], ['chocolate', 'die Schokolade'],
     ['orange juice', 'der Orangensaft'], ['ice cream', 'das Eis'], ['breakfast', 'das Frühstück'],

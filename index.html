@@ -647,7 +647,8 @@ function listProgress(l) {
 }
 function viewHome() {
   const L = LANGS[S.lang], lists = allLists().filter(l => l.lang === S.lang);
-  const sel = S.sel[S.lang] || (S.sel[S.lang] = new Set(lists.map(l => l.id)));
+  // Grundwortschatz-Listen (basic: true) sind anfangs nicht angehakt
+  const sel = S.sel[S.lang] || (S.sel[S.lang] = new Set(lists.filter(l => !l.basic).map(l => l.id)));
   let banners = '';
   if (voiceMissing(S.lang)) banners += `<div class="banner">🔇 Für ${L.name} ist auf diesem Gerät keine Stimme installiert – die Aussprache fehlt dann. Unter „Optionen“ steht, wie man eine Stimme hinzufügt.</div>`;
   if (!HAS_TTS) banners += `<div class="banner">🔇 Dieser Browser kann nicht vorsprechen. Bitte Chrome, Edge oder Safari verwenden.</div>`;
