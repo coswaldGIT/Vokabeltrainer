@@ -220,9 +220,10 @@ function toast(msg) {
 
 /* ═════════════ Vokabeln ═════════════ */
 const allLists = () => [...(window.VOKABELN || []), ...DB.custom];
+// entry[2] (freiwillig): eigener Schlüssel, wenn dasselbe Wort mit anderer Bedeutung schon in einer Liste steht („still“)
 function parseWord(entry, lang) {
   const alts = String(entry[0]).split('|').map(s => s.trim()).filter(Boolean);
-  return { lang, f: alts[0], alts, d: entry[1], key: lang + '|' + alts[0].toLowerCase() };
+  return { lang, f: alts[0], alts, d: entry[1], key: lang + '|' + (entry[2] || alts[0].toLowerCase()) };
 }
 function wordsOfList(l) { return l.words.map(e => parseWord(e, l.lang)); }
 function lookupAll() { const m = new Map(); for (const l of allLists()) for (const w of wordsOfList(l)) m.set(w.key, w); return m; }
