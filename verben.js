@@ -18,4 +18,11 @@ window.VERBEN = [
   { id: 'danser',   inf: 'danser',   de: 'tanzen' },
   { id: 'donner',   inf: 'donner',   de: 'geben' },
   { id: 'detester', inf: 'détester', de: 'verabscheuen, überhaupt nicht mögen' },
+  /* Unité 3 (Buch S. 157–160) */
+  { id: 'preparer', inf: 'préparer', de: 'vorbereiten' },
+  { id: 'inviter',  inf: 'inviter',  de: 'einladen' },
+  { id: 'ranger',   inf: 'ranger',   de: 'aufräumen',           forms: ['range', 'ranges', 'range', 'rangeons', 'rangez', 'rangent'] },
+  { id: 'avoir',    inf: 'avoir',    de: 'haben',               forms: ['ai', 'as', 'a', 'avons', 'avez', 'ont'] },
+  { id: 'manger',   inf: 'manger',   de: 'essen',               forms: ['mange', 'manges', 'mange', 'mangeons', 'mangez', 'mangent'] },
+  { id: 'chanter',  inf: 'chanter',  de: 'singen' },
 ];
